@@ -6,7 +6,6 @@ from PySide6.QtWidgets import QWidget,QPushButton,QHBoxLayout,QFrame,QButtonGrou
 from .capture_pixels import crop_selection
 from .presentation import line_icon
 from .inline_capture import InlineAnnotationCanvas
-from .ui_flow import FlowLayout
 
 PANEL_STYLE='''
 QFrame#selectionPanel { background:#20292b; border:1px solid #425357; border-radius:14px; }
@@ -52,7 +51,9 @@ class SelectionOverlay(QWidget):
         divider=QFrame();divider.setObjectName('selectionDivider');divider.setFixedSize(1,22);modes.addSpacing(7);modes.addWidget(divider);modes.addSpacing(7)
         self.hint_label=QLabel();self.hint_label.setObjectName('selectionHint');modes.addWidget(self.hint_label)
         self.actions=QFrame(self);self.actions.setObjectName('selectionPanel');self.actions.setStyleSheet(PANEL_STYLE);panel_shadow(self.actions)
-        self.action_layout=FlowLayout(self.actions,5);self.action_layout.setContentsMargins(9,9,9,9)
+        self.action_layout=QHBoxLayout(self.actions);self.action_layout.setSpacing(5);self.action_layout.setContentsMargins(9,9,9,9)
+        self.action_layout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetNoConstraint)
+        self.style_groups=[]
         self.photo_controls=[];self.tool_buttons={};self.tool_group=QButtonGroup(self)
         for key,title,icon in [('view','调整选区','capture'),('select','选择 / 移动标注','cursor'),
                               ('rectangle','矩形','rectangle'),('arrow','箭头','arrow'),('text','文字','text'),('mask','遮挡','mask')]:
@@ -71,8 +72,10 @@ class SelectionOverlay(QWidget):
         self.color_buttons[0].setChecked(True)
         for title,attr,minimum,maximum,value in [('线宽','width_spin',1,16,3),('字号','size_spin',12,64,22)]:
             group=QWidget();row=QHBoxLayout(group);row.setContentsMargins(4,0,0,0);row.setSpacing(4)
-            row.addWidget(QLabel(title));spin=QSpinBox();spin.setRange(minimum,maximum);spin.setValue(value);spin.setFixedWidth(54);spin.setAccessibleName(title)
+            group.setFixedHeight(34);caption=QLabel(title);row.addWidget(caption)
+            spin=QSpinBox();spin.setRange(minimum,maximum);spin.setValue(value);spin.setFixedSize(54,28);spin.setAccessibleName(title)
             row.addWidget(spin);self.action_layout.addWidget(group);self.photo_controls.append(group);setattr(self,attr,spin)
+            self.style_groups.append((caption,title,spin))
         self.width_spin.valueChanged.connect(lambda value:self.change_style(width=value))
         self.size_spin.valueChanged.connect(lambda value:self.change_style(size=value))
         for title,icon,attr,handler in [('撤销','undo','undo_button',self.undo),('重做','redo','redo_button',self.redo)]:
@@ -80,13 +83,19 @@ class SelectionOverlay(QWidget):
             button.setToolTip(title+' · '+('Ctrl+Z' if icon=='undo' else 'Ctrl+Y'));button.setAccessibleName(title)
             button.clicked.connect(handler);self.action_layout.addWidget(button);self.photo_controls.append(button);setattr(self,attr,button)
         self.save_button=QPushButton('保存到桌面');self.save_button.setToolTip('保存 PNG，并复制到剪贴板')
+        self.save_label='保存到桌面'
+        self.save_button.setFixedHeight(34)
         self.save_button.clicked.connect(self.save);self.action_layout.addWidget(self.save_button);self.photo_controls.append(self.save_button)
         cancel=QPushButton();cancel.setFixedSize(34,34);cancel.setIcon(line_icon('close','#ff827c'));cancel.setIconSize(QSize(22,22))
+        self.cancel_button=cancel
         cancel.setToolTip('取消 · Esc');cancel.setAccessibleName('取消截图');cancel.clicked.connect(self.cancelled.emit);self.action_layout.addWidget(cancel)
         self.confirm_button=QPushButton('完成 · 复制');self.confirm_button.setObjectName('confirmSelection')
+        self.confirm_button.setFixedHeight(34)
         self.confirm_button.setIcon(line_icon('check','#ffffff'));self.confirm_button.setIconSize(QSize(18,18))
         self.confirm_button.setToolTip('仅复制，不创建图片文件 · Enter')
         self.confirm_button.clicked.connect(lambda:self.confirm());self.action_layout.addWidget(self.confirm_button)
+        for index in range(self.action_layout.count()):
+            self.action_layout.setAlignment(self.action_layout.itemAt(index).widget(),Qt.AlignmentFlag.AlignVCenter)
         for key,handler in [('Return',lambda:self.confirm(True)),('Enter',lambda:self.confirm(True)),('Escape',self.cancelled.emit),('Ctrl+Z',self.undo),('Ctrl+Y',self.redo)]:
             shortcut=QShortcut(QKeySequence(key),self);shortcut.activated.connect(handler)
         self.shortcuts=self.findChildren(QShortcut)
@@ -135,8 +144,28 @@ class SelectionOverlay(QWidget):
             'se':r.bottomRight(),'s':QPointF(x,r.bottom()),'sw':r.bottomLeft(),'w':QPointF(r.left(),y)}
     def position_actions(self):
         r=self.selection_rect()
-        width=min(self.width()-24,850 if self.mode=='photo' else 210)
-        self.actions.resize(width,self.action_layout.heightForWidth(width))
+        available=self.width()-24
+        # Use the whole row's natural width; never wrap the completion button.
+        icons=[*self.tool_buttons.values(),self.undo_button,self.redo_button,self.cancel_button]
+        for button in icons:button.setFixedSize(34,34)
+        for button in self.color_buttons:button.setFixedSize(22,22)
+        for caption,title,spin in self.style_groups:caption.setText(title);spin.setFixedWidth(54)
+        self.action_layout.setSpacing(5)
+        self.save_button.setText(self.save_label)
+        if self.mode=='photo':self.confirm_button.setText('完成 · 复制')
+        self.action_layout.invalidate()
+        border=self.actions.frameWidth()*2
+        if self.action_layout.sizeHint().width()+border>available:
+            for button in icons:button.setFixedSize(24,34)
+            for button in self.color_buttons:button.setFixedSize(16,16)
+            for caption,title,spin in self.style_groups:caption.setText(title[0]);spin.setFixedWidth(36)
+            self.action_layout.setSpacing(2)
+            self.save_button.setText('保存')
+            if self.mode=='photo':self.confirm_button.setText('复制')
+            self.action_layout.invalidate()
+        width=min(available,self.action_layout.sizeHint().width()+border)
+        self.actions.resize(width,52+border)
+        self.action_layout.activate()
         x=max(8,min(self.width()-self.actions.width()-8,int(r.right())-self.actions.width()))
         y=int(r.bottom())+12
         if y+self.actions.height()>self.height()-8:y=max(8,int(r.top())-self.actions.height()-12)

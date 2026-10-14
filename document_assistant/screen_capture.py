@@ -389,6 +389,7 @@ class CaptureController:
                 directory=Path(self.settings['directory']).resolve()
                 desktop=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)).resolve()
                 overlay.save_button.setText('保存到桌面' if directory==desktop else '保存图片')
+                overlay.save_label=overlay.save_button.text()
                 overlay.save_button.setToolTip('保存 PNG 到：'+str(directory)+'，并复制到剪贴板')
                 overlay.selected.connect(lambda image,target=overlay:self.complete_inline(image,target))
                 overlay.save_selected.connect(lambda image,target=overlay:self.save_inline(image,target))
