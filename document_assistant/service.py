@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from .document_metadata import title_suggestion, category_rule_match, classifica
 from .storage import Catalog
 from .paths import comparison_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
 EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
 
 
@@ -52,6 +53,16 @@ def validate_library(path: Path):
 
 def extract_isolated(path: Path) -> dict:
     try:
+        if getattr(sys, 'frozen', False):
+            # Windowed executables do not expose Python stdout, even with pipes.
+            with tempfile.TemporaryDirectory(prefix='extract-') as temporary:
+                output = Path(temporary) / 'result.json'
+                result = subprocess.run([sys.executable, '--extract', str(path), '--output', str(output)],
+                                        cwd=PROJECT_ROOT, timeout=25,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                if result.returncode:
+                    return {'text': '', 'status': '无法提取：解析进程异常退出'}
+                return json.loads(output.read_text(encoding='utf-8'))
         result = subprocess.run([sys.executable, "-m", "document_assistant.extractor", str(path)],
                                 cwd=PROJECT_ROOT, capture_output=True, text=True, encoding="utf-8",
                                 timeout=25, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

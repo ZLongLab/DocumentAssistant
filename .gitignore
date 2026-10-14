@@ -4,6 +4,11 @@ venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+build/
+dist/
+*.zip
+*.exe
+*.msi
 
 # Runtime and personal data
 DocumentAssistant-local/
@@ -31,6 +36,7 @@ app-instance.lock
 *.mp4
 *.txt
 !requirements*.txt
+!packaging/licenses/*.txt
 
 # Local development records
 tests/

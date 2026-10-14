@@ -8,9 +8,12 @@ RUN_KEY=r'Software\Microsoft\Windows\CurrentVersion\Run'
 class StartupRegistration:
     def __init__(self,home,project=None,pythonw=None,value_name='DocumentAssistant'):
         self.home=Path(home).resolve();self.project=Path(project or Path(__file__).resolve().parents[1]).resolve()
-        self.pythonw=Path(pythonw or self.project/'.venv/Scripts/pythonw.exe').resolve();self.value_name=value_name
+        self.frozen=bool(getattr(sys,'frozen',False))
+        self.pythonw=Path(pythonw or (sys.executable if self.frozen else self.project/'.venv/Scripts/pythonw.exe')).resolve();self.value_name=value_name
     @property
-    def arguments(self):return [str(self.pythonw),'-B',str(self.project/'startup.py'),'--home',str(self.home)]
+    def arguments(self):
+        if self.frozen:return [str(self.pythonw),'--tray','--home',str(self.home)]
+        return [str(self.pythonw),'-B',str(self.project/'startup.py'),'--home',str(self.home)]
     @property
     def command(self):return subprocess.list2cmdline(self.arguments)
     def read(self):
@@ -26,7 +29,7 @@ class StartupRegistration:
         current=self.read()
         if current is not None and current!=self.command:raise ValueError('同名启动项属于其他安装位置；请先在 Windows 启动应用中核对')
         if enabled:
-            if not self.pythonw.is_file() or not (self.project/'startup.py').is_file():raise OSError('找不到本程序的启动文件，请检查安装位置')
+            if not self.pythonw.is_file() or (not self.frozen and not (self.project/'startup.py').is_file()):raise OSError('找不到本程序的启动文件，请检查安装位置')
             if current==self.command:return
             with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER,RUN_KEY,0,winreg.KEY_SET_VALUE) as key:
                 winreg.SetValueEx(key,self.value_name,0,winreg.REG_SZ,self.command)

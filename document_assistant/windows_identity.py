@@ -121,6 +121,11 @@ def tag_window(hwnd):
             launcher = Path(__file__).resolve().parents[1] / 'start.ps1'
             command = subprocess.list2cmdline([str(target), '-NoProfile', '-ExecutionPolicy', 'Bypass',
                                                '-WindowStyle', 'Hidden', '-File', str(launcher), '-Windowed'])
+            if getattr(sys, 'frozen', False):
+                arguments = [sys.executable]
+                if os.environ.get('DOCUMENTASSISTANT_HOME'):
+                    arguments += ['--home', os.environ['DOCUMENTASSISTANT_HOME']]
+                command = subprocess.list2cmdline(arguments)
             put(store, 2, command)
             put(store, 3, str(ICON_PATH) + ',0')
             put(store, 4, 'DocumentAssistant')
