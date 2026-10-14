@@ -1,0 +1,54 @@
+# Python environment and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime and personal data
+DocumentAssistant-local/
+.documentassistant/
+data/
+library/
+cache/
+tmp/
+recordings/
+backups/
+*.sqlite*
+*.db
+*.db-*
+*.log
+*.tmp
+*.bak
+settings.json
+screenshot.json
+app-instance.lock
+*.lnk
+*.pdf
+*.doc
+*.docx
+*.mp4
+*.txt
+!requirements*.txt
+
+# Local development records
+tests/
+scripts/
+design/
+verification*/
+VERIFICATION.md
+AI_SETUP.md
+DocumentAssistant-*/
+*-tests.log
+*-result.json
+original-hashes.json
+release-manifest.json
+deployment.json
+library-before.json
+
+# Credentials and editor settings
+.env*
+*.pem
+*.key
+.vscode/
+.idea/

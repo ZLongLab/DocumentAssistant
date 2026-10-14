@@ -1,0 +1,71 @@
+# DocumentAssistant
+
+Windows 本地文档管理与截图工具。整理实验报告、课程资料和文献，按内容建议分类，确认后复制到文档库；也可以独立截图和录制屏幕。
+
+当前版本：**0.18.2**。使用 Python、PySide6 和 SQLite，分类与检索在本地完成，无需 AI API。
+
+## 功能
+
+- **文档整理**：拖入文件或扫描文件夹，提取正文、建议标题和分类；可修改分类、课程、项目和标签后归档。支持 PDF、DOCX、TXT，以及部分旧版 DOC 文档。
+- **文档库**：搜索文件名、正文、标签和备注；支持阅读状态、常用筛选、PDF 页面预览、打开文件及所在目录。
+- **归档与备份**：保留来源文件，以复制方式归档；支持重复文件提示、归档恢复、完整库备份及恢复。
+- **截图**：默认快捷键 **Alt+S**。框选后可调整范围，编辑矩形、箭头、文字或遮挡；编辑页默认仅复制，也可保存到桌面。
+- **录屏**：在框选界面切换“视频”，选择区域后倒计时开始录制；再按截图快捷键停止，预览后保存 MP4。
+- **托盘与启动**：关闭主窗口后驻留托盘；设置中可修改截图快捷键、保存目录及开机自启动。
+
+## 安装与运行
+
+需要 Windows、Python 3.11 或更新版本。建议把项目放在独立目录，例如 `D:\Projects\DocumentAssistant`。
+
+在项目文件夹打开 PowerShell，运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+安装脚本创建项目内的 `.venv`，安装依赖，并创建桌面和开始菜单快捷方式。首次安装需要网络；使用本地文档整理、截图和录屏时无需联网。
+
+安装后双击 **Start-DocumentAssistant.cmd** 启动。
+
+如果需要指定 Python 或跳过快捷方式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -Python "D:\Python\python.exe" -NoShortcuts
+```
+
+## 使用
+
+**整理文档**：先选择一个位于项目目录外的文档库，添加文件，检查分类与标签，再确认归档。自动分类是建议，不确定的文件需要手动检查。
+
+**截图**：按 Alt+S，默认进入“拍照”。拖动框选，按 Enter 打开编辑页；编辑后按 Enter 仅复制，点击保存入口写入截图保存目录。
+
+**录屏**：按 Alt+S，切换“视频”，框选后按 Enter。倒计时 3 秒开始录制；再次按 Alt+S、点击控制条的“停止”，或使用托盘菜单停止。全屏录制使用快捷键或托盘停止。
+
+快捷方式的 Ctrl+Alt+D 用于打开主程序，Alt+S 用于应用运行期间截图和停止录屏；两者可分别配置。
+
+## 数据位置
+
+默认运行数据保存在项目目录旁的 `DocumentAssistant-local`，包括设置、缓存和录屏临时文件。文档库由用户自行选择，截图通常保存到当前 Windows 用户的桌面。
+
+可通过 `DOCUMENTASSISTANT_HOME` 环境变量指定运行数据目录。源码、运行数据与文档库应分别存放。
+
+## 当前范围
+
+- 文档分类使用本地规则。扫描件 OCR、云同步和 AI 问答尚未提供。
+- 录屏为无声视频，约 20 帧/秒；目前没有麦克风、系统声音或视频剪辑功能，需要可用的 H.264 编码器。
+- 屏幕读取中断时尝试保留已录内容；编码器故障时保留的临时视频可能不完整。
+- Word 文档支持提取正文，原始排版预览尚未提供。
+
+## 项目结构
+
+```text
+document_assistant/       应用源码、图标与界面资源
+requirements.txt         依赖范围
+requirements-lock.txt    固定依赖版本
+setup.ps1                安装环境与快捷方式
+start.ps1                启动脚本
+startup.py               Windows 登录启动入口
+Start-DocumentAssistant.cmd
+Install-Shortcuts.cmd
+install-shortcuts.ps1
+```
