@@ -9,6 +9,9 @@ SUBTEXT = Qt.ItemDataRole.UserRole + 1
 GLYPH = Qt.ItemDataRole.UserRole + 2
 MATCH_TERMS = Qt.ItemDataRole.UserRole + 3
 PATHS = {
+    'close': '<path d="m6 6 12 12M18 6 6 18"/>',
+    'redo': '<path d="m16 5 5 5-5 5M21 10H10a6 6 0 0 0 0 12"/>',
+    'mask': '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 4v16m4-16v16m4-16v16M4 8h16M4 12h16M4 16h16"/>',
     'video': '<rect x="3" y="6" width="12" height="12" rx="3"/><path d="m15 10 6-3v10l-6-3z"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M10 3h4l1 3 3 1 3 3v4l-3 1-1 3-3 3h-4l-1-3-3-1-3-3v-4l3-1 1-3z"/>',
     'capture': '<path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4"/><rect x="7" y="7" width="10" height="10" rx="2"/>',

@@ -646,7 +646,7 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
             QMessageBox.warning(self, "记录读取失败", str(exc))
 
     def show_help(self):
-        QMessageBox.information(self, "如何使用", "存资料：\n1. 选择一次文档库，例如 D:\\DocumentLibrary。\n2. 把桌面文件拖进窗口，或点击添加文件。\n3. 检查分类，点击确认归档。\n\n取资料：\n进入“文档库”，输入文件名，双击结果即可打开。\n留空显示全部归档文件，最新存入的排在前面。\n\n要整理整个文件夹，可点击扫描文件夹。\n原文件会保留。规则和操作记录在“更多操作”里。\n\n截图：\n默认按 Alt+S 或点侧栏“框选截图”，框选后可拖动边缘调整，按 Enter 进入编辑；编辑后按 Enter 仅复制。选择工具可移动、删除标注，Ctrl+Y 重做；小字保存入口写入桌面。\n保存位置和快捷键在“设置 → 截图设置”修改。\n关闭主窗口后在托盘运行，托盘菜单可退出程序。侧栏“设置”可开关开机自启动，开启后登录 Windows 时驻留托盘。")
+        QMessageBox.information(self, "如何使用", "存资料：\n1. 选择一次文档库，例如 D:\\DocumentLibrary。\n2. 把桌面文件拖进窗口，或点击添加文件。\n3. 检查分类，点击确认归档。\n\n取资料：\n进入“文档库”，输入文件名，双击结果即可打开。\n留空显示全部归档文件，最新存入的排在前面。\n\n要整理整个文件夹，可点击扫描文件夹。\n原文件会保留。规则和操作记录在“更多操作”里。\n\n截图：\n默认按 Alt+S 或点侧栏“框选截图”，框选后直接在原位置标注，按 Enter 或点击完成仅复制。文字在选区内输入，Enter 确认文字。调整工具可移动选区；选择工具可移动、删除标注，Ctrl+Z 撤销、Ctrl+Y 重做；小字保存入口写入桌面。\n保存位置和快捷键在“设置 → 截图设置”修改。\n关闭主窗口后在托盘运行，托盘菜单可退出程序。侧栏“设置”可开关开机自启动，开启后登录 Windows 时驻留托盘。")
 
     def edit_rules(self):
         dialog = RuleDialog(self.rules, self)

@@ -386,7 +386,13 @@ class CaptureController:
                 overlay.refresh_toolbar()
                 overlay.video_selected.connect(lambda rect,target=screen:self.begin_video(target,rect))
                 overlay.mode_changed.connect(self.change_capture_mode)
-                overlay.selected.connect(lambda image,target=screen:self.selected(image,target));overlay.cancelled.connect(self.cancel)
+                directory=Path(self.settings['directory']).resolve()
+                desktop=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)).resolve()
+                overlay.save_button.setText('保存到桌面' if directory==desktop else '保存图片')
+                overlay.save_button.setToolTip('保存 PNG 到：'+str(directory)+'，并复制到剪贴板')
+                overlay.selected.connect(lambda image,target=overlay:self.complete_inline(image,target))
+                overlay.save_selected.connect(lambda image,target=overlay:self.save_inline(image,target))
+                overlay.cancelled.connect(self.cancel)
                 self.overlays.append(overlay)
             # Every snapshot is taken before any selection overlay becomes visible.
             for overlay in self.overlays:overlay.show();overlay.raise_()
@@ -397,6 +403,29 @@ class CaptureController:
     def close_overlays(self):
         overlays,self.overlays=self.overlays,[]
         for overlay in overlays:overlay.close();overlay.deleteLater()
+
+    def complete_inline(self,image,overlay):
+        try:copy_image(image)
+        except Exception as exc:
+            overlay.show_error('复制失败，可重试或保存：'+str(exc));return
+        self.close_overlays();self.finished()
+        self.notify('截图已复制','可以粘贴到 Word 或聊天窗口')
+
+    def save_inline(self,image,overlay):
+        try:
+            if overlay.saved_image is not None and image==overlay.saved_image and overlay.saved_path and overlay.saved_path.is_file():
+                path=overlay.saved_path
+            else:
+                path=save_png(image,self.settings['directory'])
+                overlay.saved_image=image.copy();overlay.saved_path=path
+            self.last_saved=path
+        except Exception as exc:
+            overlay.show_error('保存失败，可重试或仅复制：'+str(exc));return
+        try:copy_image(image)
+        except Exception as exc:
+            overlay.show_error('图片已保存，复制失败，可重试：'+str(exc))
+            self.notify('截图已保存',str(path));return
+        self.close_overlays();self.finished();self.notify('截图已保存并复制',str(path))
 
     def selected(self,image,screen=None):
         self.close_overlays()
