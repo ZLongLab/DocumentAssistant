@@ -8,9 +8,9 @@ from PySide6.QtWidgets import (
 from .cards import CardGrid, DetailPane, ShelfArtwork
 from .presentation import TwoLineDelegate, line_icon
 from .rules import CATEGORIES
-from .theme import WORKBENCH_QSS
+from .theme import get_colors, normalize_theme, switch_theme
 from .windows_identity import ICON_PATH
-from .library_decoration import ActionMenu,LibraryFlourish
+from .library_decoration import ActionMenu, LibraryFlourish, WorkbenchFlourish
 from PySide6.QtGui import QIcon
 
 
@@ -57,7 +57,11 @@ class WorkbenchResponsive(QObject):
     def fit(self):
         compact=self.window.width()<1200
         self.window.import_hint.setVisible(not compact)
-        self.window.library_art.setVisible(self.window.tabs.currentIndex()==1 and self.window.width()>=1240)
+        wide = self.window.width() >= 1240
+        if hasattr(self.window, 'topbar_art'):
+            self.window.topbar_art.setVisible(self.window.tabs.currentIndex() == 0 and wide)
+        if hasattr(self.window, 'library_art'):
+            self.window.library_art.setVisible(self.window.tabs.currentIndex() == 1 and wide)
         if compact!=self.compact:
             if compact:
                 self.restore_details=not self.window.details_panel.isHidden()
@@ -93,6 +97,7 @@ class WorkflowSteps(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         self.badges = []
+        self.stage = 0
         for index, title in enumerate(('导入文件', '检查分类', '确认归档')):
             if index:
                 row.addWidget(label('—', 'muted'))
@@ -106,11 +111,80 @@ class WorkflowSteps(QWidget):
         self.set_stage(0)
 
     def set_stage(self, stage):
+        self.stage = stage
+        colors = get_colors()
         for index, badge in enumerate(self.badges):
-            bg, fg = ('#e9612c', '#ffffff') if index == stage else ('#e6e4db', '#5b655a')
-            if index == stage == 2:
-                bg = '#164b3c'
+            if index < stage:
+                bg = colors['step_done']
+                fg = '#ffffff'
+            elif index == stage:
+                bg = colors['step_active']
+                fg = '#ffffff'
+            else:
+                bg = colors['step_inactive_bg']
+                fg = colors['step_inactive_text']
             badge.setStyleSheet(f'background:{bg};color:{fg};border-radius:12px;font-weight:600;')
+
+    def refresh_stage(self):
+        self.set_stage(self.stage)
+
+
+def apply_theme(window, theme_name, *, persist=True):
+    theme_name = normalize_theme(theme_name)
+    switch_theme(theme_name)
+    from .theme import WORKBENCH_QSS
+    colors = get_colors()
+    window.setStyleSheet(WORKBENCH_QSS)
+
+    if hasattr(window, 'theme_toggle'):
+        if theme_name == 'ocean':
+            window.theme_toggle.setText('主题：海蓝晶石')
+            window.theme_toggle.setToolTip('当前为海蓝晶石。点击切换为暖玫瑰金。')
+        else:
+            window.theme_toggle.setText('主题：暖玫瑰金')
+            window.theme_toggle.setToolTip('当前为暖玫瑰金。点击切换为海蓝晶石。')
+        window.theme_toggle.setIcon(line_icon('more', colors['footer_text']))
+
+    if hasattr(window, 'shelf') and window.shelf:
+        window.shelf.update()
+    if hasattr(window, 'library_art') and window.library_art:
+        window.library_art.update()
+    if hasattr(window, 'topbar_art') and window.topbar_art:
+        window.topbar_art.update()
+
+    if hasattr(window, 'steps_label') and window.steps_label:
+        window.steps_label.refresh_stage()
+
+    if hasattr(window, 'details_panel') and window.details_panel:
+        window.details_panel.refresh_theme()
+
+    if hasattr(window, 'nav_buttons') and hasattr(window, 'tabs'):
+        idx = window.tabs.currentIndex()
+        for i, nav in enumerate(window.nav_buttons):
+            nav.setIcon(line_icon('import' if i == 0 else 'library', '#ffffff' if i == idx else colors['nav_text']))
+    if hasattr(window, 'screenshot_button'):
+        window.screenshot_button.setIcon(line_icon('capture', '#ffffff'))
+    if hasattr(window, 'library_title_icon'):
+        window.library_title_icon.setPixmap(line_icon('library', colors['primary_bg']).pixmap(28, 28))
+    if hasattr(window, 'more_button'):
+        window.more_button.setIcon(line_icon('more', colors['footer_text']))
+    if hasattr(window, 'settings_button'):
+        window.settings_button.setIcon(line_icon('settings', colors['footer_text']))
+    if hasattr(window, 'topbar_frame'):
+        window.topbar_frame.style().unpolish(window.topbar_frame)
+        window.topbar_frame.style().polish(window.topbar_frame)
+
+    if hasattr(window, 'settings') and isinstance(window.settings, dict):
+        window.settings['theme'] = theme_name
+        if persist and hasattr(window, 'save_settings'):
+            window.save_settings()
+
+
+def toggle_theme(window):
+    from .theme import CURRENT_THEME
+    next_theme = 'rose' if CURRENT_THEME == 'ocean' else 'ocean'
+    apply_theme(window, next_theme)
+    window.statusBar().showMessage(f"已切换至{'暖玫瑰金' if next_theme == 'rose' else '海蓝晶石'}主题")
 
 
 class SelectAllCheckBox(QCheckBox):
@@ -120,6 +194,9 @@ class SelectAllCheckBox(QCheckBox):
 
 def build_window(window):
     from .gui import table
+    # Establish the saved palette before constructing theme-aware child widgets.
+    init_theme = normalize_theme(window.settings.get('theme', 'ocean'))
+    switch_theme(init_theme)
     window.setMinimumSize(960, 580)
     available = QApplication.primaryScreen().availableGeometry()
     window.resize(min(1540, max(960, available.width() - 48)),
@@ -161,8 +238,8 @@ def build_window(window):
     window.screenshot_button.setMinimumHeight(52)
     window.screenshot_button.setToolTip('框选屏幕，标注后保存或复制；快捷键可在截图设置中修改')
     side.addWidget(window.screenshot_button)
-    shelf = ShelfArtwork()
-    side.addWidget(shelf, 1)
+    window.shelf = ShelfArtwork()
+    side.addWidget(window.shelf, 1)
     footer,footer_layout=frame('sidebarFooter',margins=(8,10,8,8),spacing=5)
     footer_layout.addWidget(label('当前文档库','footerCaption'))
     location=QHBoxLayout();location.setContentsMargins(8,0,8,4);location.setSpacing(8)
@@ -171,12 +248,22 @@ def build_window(window):
     window.sidebar_path=LibraryPathLabel('尚未选择文档库')
     location.addWidget(window.sidebar_path,1);footer_layout.addLayout(location)
     separator=QFrame();separator.setObjectName('footerSeparator');separator.setFixedHeight(1);footer_layout.addWidget(separator)
+    window.theme_toggle = button('主题：海蓝晶石', lambda: toggle_theme(window), 'more')
+    window.theme_toggle.setObjectName('footerAction')
+    window.theme_toggle.setMinimumHeight(38)
+    window.theme_toggle.setToolTip('点击切换海蓝晶石与暖玫瑰金主题')
+    footer_layout.addWidget(window.theme_toggle)
     window.more_button = button('更多操作', lambda: window.more_menu.popup(
         window.more_button.mapToGlobal(QPoint(0, -window.more_menu.sizeHint().height()))), 'more')
     window.more_button.setObjectName('footerAction');window.more_button.setMinimumHeight(38)
     window.more_button.setIcon(line_icon('more','#dcebe1'))
     window.more_menu = ActionMenu(parent=window)
     menu = window.more_menu
+    menu_theme = ActionMenu('视觉主题', window.more_menu)
+    window.more_menu.addMenu(menu_theme).setIcon(line_icon('more', '#2563eb'))
+    menu_theme.addAction('海蓝晶石', lambda: apply_theme(window, 'ocean'))
+    menu_theme.addAction('暖玫瑰金', lambda: apply_theme(window, 'rose'))
+    menu.addSeparator()
     menu=ActionMenu('截图',window.more_menu);window.more_menu.addMenu(menu).setIcon(line_icon('capture','#198466'))
     menu.addAction('框选截图',window.take_screenshot)
     menu.addAction('截图设置',window.screenshot_settings)
@@ -231,7 +318,10 @@ def build_window(window):
     window.steps_label = WorkflowSteps()
     titles.addWidget(window.steps_label)
     heading.addLayout(titles, 1)
-    window.library_art=LibraryFlourish();heading.addWidget(window.library_art)
+    window.topbar_art = WorkbenchFlourish()
+    heading.addWidget(window.topbar_art)
+    window.library_art=LibraryFlourish()
+    heading.addWidget(window.library_art)
     location = QVBoxLayout()
     location.setSpacing(5)
     location.addWidget(label('文档库位置', 'muted'))
@@ -454,17 +544,24 @@ def build_window(window):
     root_layout.addWidget(main, 1)
 
     def page_changed(index):
-        window.library_title_icon.setVisible(index==1)
-        window.library_art.setVisible(index==1 and window.width()>=1240)
-        window.topbar_frame.setProperty('library',index==1)
-        window.topbar_frame.style().unpolish(window.topbar_frame);window.topbar_frame.style().polish(window.topbar_frame)
+        wide = window.width() >= 1240
+        window.library_title_icon.setVisible(index == 1)
+        if hasattr(window, 'topbar_art'):
+            window.topbar_art.setVisible(index == 0 and wide)
+        if hasattr(window, 'library_art'):
+            window.library_art.setVisible(index == 1 and wide)
+        window.topbar_frame.setProperty('library', index == 1)
+        window.topbar_frame.style().unpolish(window.topbar_frame)
+        window.topbar_frame.style().polish(window.topbar_frame)
         window.nav_buttons[index].setChecked(True)
         window.page_title.setText('整理你的文档' if index == 0 else '你的文档库')
         window.page_subtitle.setText('检查分类建议，确认后复制到文档库' if index == 0
                                      else '搜索正文、课程与项目，直接打开已归档文件')
         window.steps_label.setVisible(index == 0)
+        from .theme import get_colors
+        c = get_colors()
         for i, nav in enumerate(window.nav_buttons):
-            nav.setIcon(line_icon('import' if i == 0 else 'library', '#ffffff' if i == index else '#dfeae3'))
+            nav.setIcon(line_icon('import' if i == 0 else 'library', '#ffffff' if i == index else c['nav_text']))
     window.tabs.currentChanged.connect(page_changed)
     page_changed(0)
     window.history_dialog = QDialog(window)
@@ -479,7 +576,8 @@ def build_window(window):
     window.statusBar().setSizeGripEnabled(False)
     window.statusBar().showMessage('拖入文件 → 检查分类 → 确认复制归档；在文档库搜索并打开。')
     window.setWindowIcon(QIcon(str(ICON_PATH)))
-    window.setStyleSheet(WORKBENCH_QSS)
+    # Paths and the pending document list are restored after build_window returns.
+    apply_theme(window, init_theme, persist=False)
     if window.review_mode=='list':
         window.details_panel.hide()
         from PySide6.QtWidgets import QHeaderView

@@ -196,7 +196,13 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
                 self.startup_errors.append(f"文档库读取失败：{exc}")
 
     def save_settings(self):
-        data = {"source": self.source_edit.text(), "library": self.library_edit.text(), 'view': self.review_mode,'review_order':self.review_order}
+        data = {
+            "source": self.source_edit.text(),
+            "library": self.library_edit.text(),
+            "view": self.review_mode,
+            "review_order": self.review_order,
+            "theme": self.settings.get("theme", "ocean"),
+        }
         try:
             temporary = self.settings_path.with_suffix(".tmp")
             temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -205,6 +211,10 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
             self.save_loose_queue()
         except OSError as exc:
             self.statusBar().showMessage(f"设置保存失败：{exc}")
+
+    def toggle_theme(self):
+        from .layout import toggle_theme
+        toggle_theme(self)
 
     def choose_source(self):
         selected = QFileDialog.getExistingDirectory(self, "选择待整理文件夹", self.source_edit.text() or "D:/")

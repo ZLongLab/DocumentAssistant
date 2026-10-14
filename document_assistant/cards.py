@@ -60,7 +60,8 @@ class DocumentArtwork(QWidget):
             p.drawImage(rect,self.preview)
             p.setPen(QPen(QColor('#d9ded7'),1));p.setBrush(Qt.BrushStyle.NoBrush);p.drawRect(rect)
             font=QFont('Microsoft YaHei UI');font.setPixelSize(12);font.setBold(True);p.setFont(font);p.setPen(QColor(ink))
-            p.drawText(QRectF(96,12,self.width()-108,22),'PDF · 实际首页')
+            title=p.fontMetrics().elidedText('PDF · 实际首页',Qt.TextElideMode.ElideRight,max(0,self.width()-108))
+            p.drawText(QRectF(96,12,self.width()-108,22),title)
             font.setBold(False);p.setFont(font);p.setPen(QColor('#50645b'))
             excerpt=' '.join(self.item.body.split())[:150] if self.item.body else '此文件暂无可提取正文'
             p.drawText(QRectF(96,42,self.width()-108,46),Qt.TextFlag.TextWordWrap,excerpt)
@@ -77,15 +78,33 @@ class DocumentArtwork(QWidget):
 
 
 class ShelfArtwork(QWidget):
-    """Lightweight local vector illustration for the sidebar."""
+    """Refined vector illustration for the sidebar that adapts to active theme."""
     def paintEvent(self, event):
+        if self.height() < 130:
+            return
+        from .theme import get_colors, CURRENT_THEME
+        colors = get_colors()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         scale = min(self.width() / 210, self.height() / 310)
         p.translate(0, self.height() - 310 * scale)
         p.scale(scale, scale)
+
+        # Ambient glow behind top decor
+        glow_col = QColor(colors['accent'])
+        glow_col.setAlpha(35)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setOpacity(.5)
+        p.setBrush(glow_col)
+        p.drawEllipse(QRectF(10, 15, 140, 110))
+
+        # Delicate floating sparkle / star dust
+        p.setBrush(QColor(colors['flourish_dot_1']))
+        for sx, sy, sr in ((32, 20, 2.5), (95, 30, 2.0), (145, 80, 2.8), (170, 130, 1.8), (20, 140, 2.2)):
+            p.drawEllipse(QRectF(sx, sy, sr * 2, sr * 2))
+
+        # Leaves / decorative foliage
+        p.setOpacity(0.65)
+        leaf_color = QColor(colors['shelf_leaf'])
         for x, y, rotation in ((15, 35, -40), (24, 65, 35), (17, 98, -36), (130, 195, -40), (145, 226, 40)):
             p.save()
             p.translate(x, y)
@@ -94,21 +113,43 @@ class ShelfArtwork(QWidget):
             leaf.moveTo(0, 30)
             leaf.cubicTo(-26, -8, -8, -24, 0, -48)
             leaf.cubicTo(24, -18, 25, 4, 0, 30)
-            p.setBrush(QColor("#829571"))
+            p.setBrush(leaf_color)
             p.drawPath(leaf)
             p.restore()
-        p.setBrush(QColor("#a79b6c"))
-        p.drawRoundedRect(QRectF(0, 175, 126, 9), 2, 2)
-        p.drawRoundedRect(QRectF(0, 292, 194, 8), 2, 2)
-        for x, top, width, color in ((5, 96, 21, "#6a857d"), (29, 113, 22, "#486b5b"), (54, 84, 19, "#a49a6a"),
-                                      (76, 109, 25, "#729087"), (104, 130, 18, "#8e8e6d"),
-                                      (7, 226, 24, "#426c5d"), (36, 214, 21, "#81947c"), (61, 207, 25, "#998764"), (92, 233, 25, "#4e7666")):
+        p.setOpacity(1.0)
+
+        # Shelves with sleek rounded profile
+        shelf_col = QColor(colors['shelf_shelf'])
+        p.setBrush(shelf_col)
+        p.drawRoundedRect(QRectF(0, 175, 126, 9), 3, 3)
+        p.drawRoundedRect(QRectF(0, 292, 194, 8), 3, 3)
+
+        # Books with theme palette
+        book_colors = [
+            colors['shelf_book_1'], colors['shelf_book_2'], colors['shelf_book_3'],
+            colors['shelf_book_4'], colors['shelf_book_5'], colors['shelf_book_1'],
+            colors['shelf_book_2'], colors['shelf_book_3'], colors['shelf_book_4']
+        ]
+
+        book_defs = [
+            (5, 96, 21), (29, 113, 22), (54, 84, 19),
+            (76, 109, 25), (104, 130, 18),
+            (7, 226, 24), (36, 214, 21), (61, 207, 25), (92, 233, 25)
+        ]
+
+        gold_line = QColor('#ffffff' if CURRENT_THEME == 'ocean' else '#f8e0b0')
+        gold_line.setAlpha(120)
+
+        for i, (x, top, width) in enumerate(book_defs):
             bottom = 175 if top < 175 else 292
-            p.setBrush(QColor(color))
-            p.drawRoundedRect(QRectF(x, top, width, bottom - top), 2, 2)
-            p.setPen(QPen(QColor("#bcc1a1"), .6))
-            p.drawLine(x + 5, top + 10, x + width - 4, top + 10)
-            p.drawLine(x + 5, bottom - 12, x + width - 4, bottom - 12)
+            p.setBrush(QColor(book_colors[i]))
+            p.drawRoundedRect(QRectF(x, top, width, bottom - top), 3, 3)
+            # Embossed spine foil / bookmark lines
+            p.setPen(QPen(gold_line, 0.8))
+            p.drawLine(x + 4, top + 10, x + width - 4, top + 10)
+            p.drawLine(x + 4, bottom - 12, x + width - 4, bottom - 12)
+            # Vertical spine accent
+            p.drawLine(x + width // 2, top + 16, x + width // 2, bottom - 18)
             p.setPen(Qt.PenStyle.NoPen)
         p.end()
 
@@ -372,7 +413,9 @@ class DetailPane(QFrame):
         layout.addLayout(category_row)
         layout.addWidget(text_label("分类依据", "fieldTitle"))
         self.reason = text_label("分类依据将在这里显示。", "reasonBox")
-        self.reason.setStyleSheet('background:#edf2e9; border-radius:10px; padding:10px; color:#315a45; font-size:12px;')
+        from .theme import get_colors
+        _c = get_colors()
+        self.reason.setStyleSheet(f'background:{_c["reason_bg"]}; border-radius:12px; padding:10px; color:{_c["reason_text"]}; font-size:12px;')
         self.reason.setWordWrap(True)
         self.reason.setMaximumHeight(112)
         layout.addWidget(self.reason)
@@ -380,7 +423,7 @@ class DetailPane(QFrame):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.open_button = QPushButton("打开原文件")
-        self.open_button.setIcon(line_icon("open", "#174f41"))
+        self.open_button.setIcon(line_icon("open", _c['primary_bg']))
         self.open_button.clicked.connect(window.open_source)
         layout.addWidget(self.open_button)
         self.remember_button = QPushButton('记住此文件夹的课程 / 项目')
@@ -391,6 +434,12 @@ class DetailPane(QFrame):
         layout.addWidget(self.category_rule_button)
         self.combo.setEnabled(False)
         self.open_button.setEnabled(False)
+
+    def refresh_theme(self):
+        from .theme import get_colors
+        c = get_colors()
+        self.reason.setStyleSheet(f'background:{c["reason_bg"]}; border-radius:12px; padding:10px; color:{c["reason_text"]}; font-size:12px;')
+        self.open_button.setIcon(line_icon("open", c['primary_bg']))
 
     def changed(self, category):
         if 0 <= self.row < len(self.window.items):
