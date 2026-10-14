@@ -57,7 +57,7 @@ class WorkbenchResponsive(QObject):
     def fit(self):
         compact=self.window.width()<1200
         self.window.import_hint.setVisible(not compact)
-        wide = self.window.width() >= 1240
+        wide = self.window.width() >= 1200
         if hasattr(self.window, 'topbar_art'):
             self.window.topbar_art.setVisible(self.window.tabs.currentIndex() == 0 and wide)
         if hasattr(self.window, 'library_art'):
@@ -240,7 +240,7 @@ def build_window(window):
     side.addWidget(window.screenshot_button)
     window.shelf = ShelfArtwork()
     side.addWidget(window.shelf, 1)
-    footer,footer_layout=frame('sidebarFooter',margins=(8,10,8,8),spacing=5)
+    footer,footer_layout=frame('sidebarFooter',margins=(8,10,8,8),spacing=7)
     footer_layout.addWidget(label('当前文档库','footerCaption'))
     location=QHBoxLayout();location.setContentsMargins(8,0,8,4);location.setSpacing(8)
     folder_icon=label('');folder_icon.setPixmap(line_icon('folder','#cbded2').pixmap(18,18));location.addWidget(folder_icon)
@@ -544,7 +544,7 @@ def build_window(window):
     root_layout.addWidget(main, 1)
 
     def page_changed(index):
-        wide = window.width() >= 1240
+        wide = window.width() >= 1200
         window.library_title_icon.setVisible(index == 1)
         if hasattr(window, 'topbar_art'):
             window.topbar_art.setVisible(index == 0 and wide)

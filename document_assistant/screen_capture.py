@@ -56,6 +56,7 @@ def copy_image(image):
 
 from .selection_overlay import SelectionOverlay
 from .capture_canvas import AnnotationCanvas
+from .capture_tools import load_tools,normalize_tools,save_tools
 
 
 class ColorDot(QPushButton):
@@ -114,7 +115,7 @@ class CaptureEditor(QDialog):
         group=QFrame();group.setObjectName('toolGroup')
         group_layout=QHBoxLayout(group);group_layout.setContentsMargins(4,4,4,4);group_layout.setSpacing(3)
         self.tool_buttons={};self.tool_group=QButtonGroup(self)
-        for index,(name,key,icon_name) in enumerate([('查看','view','cursor'),('选择','select','cursor'),('矩形','rectangle','rectangle'),('箭头','arrow','arrow'),('文字','text','text'),('遮挡','mask','rectangle')]):
+        for index,(name,key,icon_name) in enumerate([('查看','view','cursor'),('选择','select','cursor'),('矩形','rectangle','rectangle'),('箭头','arrow','arrow'),('文字','text','text'),('马赛克','mask','mask')]):
             self.tools.addItem(name,key)
             button=QPushButton(name);button.setObjectName('tool');button.setCheckable(True);button.setAutoDefault(False)
             button.setIcon(line_icon(icon_name,'#4b6c5a'));button.setIconSize(QSize(17,17))
@@ -283,6 +284,7 @@ class CaptureController:
     def __init__(self,window,activate=True):
         self.window=window;self.app=QApplication.instance()
         self.path=window.home/'screenshot.json'
+        self.tools_path=window.home/'capture-tools.json';self.tool_preferences=load_tools(self.tools_path)
         desktop=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
         self.settings={'hotkey':'Alt+S','directory':desktop or str(Path.home()/'Desktop')}
         try:
@@ -349,6 +351,11 @@ class CaptureController:
         self.window.screenshot_button.setText(('框选截图  '+key if len(key)<=7 else '框选截图') if active else '框选截图 · 热键未启用')
         self.window.screenshot_button.setToolTip(('截图快捷键 '+key if active else key+' 未启用，可能被占用；仍可点击截图')+'；框选界面可切换视频，录制时再按热键停止')
 
+    def remember_tools(self,value):
+        self.tool_preferences=normalize_tools(value)
+        try:save_tools(self.tools_path,self.tool_preferences)
+        except OSError as exc:self.window.statusBar().showMessage('本次工具设置可用，但未能保存：'+str(exc),10000)
+
     def show_settings(self):
         if self.recording and not self.recording.done:
             self.notify('正在录制','请先停止或取消录制，再修改截图设置');return
@@ -381,7 +388,8 @@ class CaptureController:
             frames=[(screen,screen.grabWindow(0).toImage()) for screen in self.app.screens()]
             if not frames or any(image.isNull() for _,image in frames):raise OSError('无法读取屏幕画面')
             for screen,image in frames:
-                overlay=SelectionOverlay(screen,image)
+                overlay=SelectionOverlay(screen,image,self.tool_preferences)
+                overlay.preferences_changed.connect(self.remember_tools)
                 overlay.stop_key=self.hotkey.text if self.hotkey.ident is not None else '托盘菜单'
                 overlay.refresh_toolbar()
                 overlay.video_selected.connect(lambda rect,target=screen:self.begin_video(target,rect))

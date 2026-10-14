@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QWidget,QPushButton,QHBoxLayout,QFrame,QButtonGrou
 from .capture_pixels import crop_selection
 from .presentation import line_icon
 from .inline_capture import InlineAnnotationCanvas
+from .capture_tools import COLORS,normalize_tools
 
 PANEL_STYLE='''
 QFrame#selectionPanel { background:#20292b; border:1px solid #425357; border-radius:14px; }
@@ -32,7 +33,8 @@ class SelectionOverlay(QWidget):
     video_selected=Signal(object)
     mode_changed=Signal(str)
     cancelled=Signal()
-    def __init__(self,screen,image):
+    preferences_changed=Signal(object)
+    def __init__(self,screen,image,preferences=None):
         super().__init__(None,Qt.WindowType.FramelessWindowHint|Qt.WindowType.WindowStaysOnTopHint|Qt.WindowType.Tool)
         self.screen_ref,self.image=screen,image;self.start=self.end=None;self.drag=None;self.origin=None;self.press=None
         self.setCursor(Qt.CursorShape.CrossCursor);self.setMouseTracking(True)
@@ -40,6 +42,7 @@ class SelectionOverlay(QWidget):
         self.mode='photo';self.stop_key='Alt+S';self.selection_locked=False
         self.canvas=None;self.crop_origin=None;self.tool='view';self.error_text=''
         self.saved_path=self.saved_image=None
+        self.tool_preferences=normalize_tools(preferences)
         self.modes=QFrame(self);self.modes.setObjectName('selectionPanel');self.modes.setStyleSheet(PANEL_STYLE);panel_shadow(self.modes)
         modes=QHBoxLayout(self.modes);modes.setContentsMargins(7,7,14,7);modes.setSpacing(5)
         self.mode_group=QButtonGroup(self);self.mode_buttons={}
@@ -53,10 +56,10 @@ class SelectionOverlay(QWidget):
         self.actions=QFrame(self);self.actions.setObjectName('selectionPanel');self.actions.setStyleSheet(PANEL_STYLE);panel_shadow(self.actions)
         self.action_layout=QHBoxLayout(self.actions);self.action_layout.setSpacing(5);self.action_layout.setContentsMargins(9,9,9,9)
         self.action_layout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetNoConstraint)
-        self.style_groups=[]
+        self.style_groups=[];self.option_groups={}
         self.photo_controls=[];self.tool_buttons={};self.tool_group=QButtonGroup(self)
         for key,title,icon in [('view','调整选区','capture'),('select','选择 / 移动标注','cursor'),
-                              ('rectangle','矩形','rectangle'),('arrow','箭头','arrow'),('text','文字','text'),('mask','遮挡','mask')]:
+                              ('rectangle','矩形','rectangle'),('arrow','箭头','arrow'),('text','文字','text'),('mask','马赛克 · 按住拖动自由涂抹','mask')]:
             button=QPushButton();button.setFixedSize(34,34);button.setCheckable(True)
             button.setToolTip(title);button.setAccessibleName(title);button.setIcon(line_icon(icon,'#edf5f0'));button.setIconSize(QSize(21,21))
             button.clicked.connect(lambda checked=False,value=key:self.set_tool(value))
@@ -70,14 +73,21 @@ class SelectionOverlay(QWidget):
             button.clicked.connect(lambda checked=False,value=color:self.change_style(color=value))
             self.color_group.addButton(button);self.color_buttons.append(button);self.action_layout.addWidget(button);self.photo_controls.append(button)
         self.color_buttons[0].setChecked(True)
-        for title,attr,minimum,maximum,value in [('线宽','width_spin',1,16,3),('字号','size_spin',12,64,22)]:
+        for title,attr,minimum,maximum,value in [('线宽','width_spin',1,16,3),('字号','size_spin',12,64,22),
+                                               ('笔刷','brush_spin',4,64,12),('颗粒','block_spin',2,32,6)]:
             group=QWidget();row=QHBoxLayout(group);row.setContentsMargins(4,0,0,0);row.setSpacing(4)
             group.setFixedHeight(34);caption=QLabel(title);row.addWidget(caption)
             spin=QSpinBox();spin.setRange(minimum,maximum);spin.setValue(value);spin.setFixedSize(54,28);spin.setAccessibleName(title)
             row.addWidget(spin);self.action_layout.addWidget(group);self.photo_controls.append(group);setattr(self,attr,spin)
             self.style_groups.append((caption,title,spin))
+            self.option_groups[attr]=group
         self.width_spin.valueChanged.connect(lambda value:self.change_style(width=value))
+        self.width_spin.setToolTip('矩形或箭头的线宽')
         self.size_spin.valueChanged.connect(lambda value:self.change_style(size=value))
+        self.brush_spin.valueChanged.connect(lambda value:self.change_style(brush=value))
+        self.block_spin.valueChanged.connect(lambda value:self.change_style(block=value))
+        self.brush_spin.setToolTip('马赛克涂抹范围的直径')
+        self.block_spin.setToolTip('马赛克像素块的大小')
         for title,icon,attr,handler in [('撤销','undo','undo_button',self.undo),('重做','redo','redo_button',self.redo)]:
             button=QPushButton();button.setFixedSize(34,34);button.setIcon(line_icon(icon,'#edf5f0'));button.setIconSize(QSize(21,21))
             button.setToolTip(title+' · '+('Ctrl+Z' if icon=='undo' else 'Ctrl+Y'));button.setAccessibleName(title)
@@ -99,7 +109,7 @@ class SelectionOverlay(QWidget):
         for key,handler in [('Return',lambda:self.confirm(True)),('Enter',lambda:self.confirm(True)),('Escape',self.cancelled.emit),('Ctrl+Z',self.undo),('Ctrl+Y',self.redo)]:
             shortcut=QShortcut(QKeySequence(key),self);shortcut.activated.connect(handler)
         self.shortcuts=self.findChildren(QShortcut)
-        self.actions.hide();self.refresh_toolbar()
+        self.actions.hide();self.refresh_options();self.refresh_toolbar()
     def refresh_toolbar(self):
         if not hasattr(self,'hint_label'):return
         hint='框选后直接标注  ·  Enter 复制  ·  Esc 取消'
@@ -123,6 +133,7 @@ class SelectionOverlay(QWidget):
         self.mode=mode;self.mode_buttons[mode].setChecked(True)
         if self.canvas:self.canvas.finish_text();self.canvas.setVisible(mode=='photo')
         for widget in self.photo_controls:widget.setVisible(mode=='photo')
+        self.refresh_options()
         self.confirm_button.setText('开始录制  ↵' if mode=='video' else '完成 · 复制')
         self.confirm_button.setToolTip('开始无声录屏' if mode=='video' else '仅复制，不创建图片文件 · Enter')
         self.confirm_button.setIcon(line_icon('video' if mode=='video' else 'check','#ffffff'))
@@ -180,9 +191,42 @@ class SelectionOverlay(QWidget):
     def set_tool(self,tool):
         self.tool=tool;self.tool_buttons[tool].setChecked(True)
         if self.canvas:self.canvas.set_tool(tool)
+        self.refresh_options()
 
     def change_style(self,**style):
+        kind=self.effective_tool()
+        if kind in self.tool_preferences:
+            self.tool_preferences[kind].update({k:v for k,v in style.items() if k in self.tool_preferences[kind]})
         if self.canvas:self.canvas.apply_style(**style)
+        self.preferences_changed.emit(copy.deepcopy(self.tool_preferences))
+        self.refresh_options()
+
+    def effective_tool(self):
+        if self.tool=='select' and self.canvas and self.canvas.selected_index is not None:
+            return self.canvas.marks[self.canvas.selected_index][0]
+        return self.tool
+
+    def refresh_options(self):
+        if not hasattr(self,'block_spin'):return
+        kind=self.effective_tool();photo=self.mode=='photo'
+        for button in self.color_buttons:button.setVisible(photo and kind in ('rectangle','arrow','text'))
+        visible={'width_spin':kind in ('rectangle','arrow'),'size_spin':kind=='text',
+                 'brush_spin':kind=='mask','block_spin':kind=='mask'}
+        for attr,group in self.option_groups.items():group.setVisible(photo and visible[attr])
+        values=dict(self.tool_preferences.get(kind,{}))
+        if self.canvas and self.canvas.selected_index is not None:
+            from .capture_markup import style_of
+            mark=self.canvas.marks[self.canvas.selected_index];values.update(style_of(mark));values['color']=mark[4]
+            if kind=='mask':values['brush']=values.get('brush',values.get('width',3)*4)
+        for key,attr in [('width','width_spin'),('size','size_spin'),('brush','brush_spin'),('block','block_spin')]:
+            if key in values:
+                spin=getattr(self,attr);blocked=spin.blockSignals(True);spin.setValue(values[key]);spin.blockSignals(blocked)
+        color=values.get('color','#e34f45')
+        for button,choice in zip(self.color_buttons,COLORS):button.setChecked(choice==color)
+        if self.canvas:
+            self.canvas.color=color;self.canvas.line_width=self.width_spin.value();self.canvas.text_size=self.size_spin.value()
+            self.canvas.brush_size=self.brush_spin.value();self.canvas.mosaic_block=self.block_spin.value();self.canvas.update()
+        if self.actions.isVisible():self.position_actions()
 
     def undo(self):
         if self.canvas:
@@ -218,34 +262,26 @@ class SelectionOverlay(QWidget):
             previous.image=image;previous.cached_image=previous.cached_marks=None;previous.selected_index=None
         self.crop_origin=origin
         self.canvas.setGeometry(r.toRect());self.canvas.set_tool(self.tool)
-        self.canvas.color=('#e34f45','#ec9b21','#377fde','#24825c')[next((i for i,b in enumerate(self.color_buttons) if b.isChecked()),0)]
-        self.canvas.line_width=self.width_spin.value();self.canvas.text_size=self.size_spin.value()
         self.canvas.setVisible(self.mode=='photo');self.canvas.update();self.update_annotation_controls()
         self.actions.raise_();self.modes.raise_()
 
     def update_annotation_controls(self):
         self.undo_button.setEnabled(bool(self.canvas and self.canvas.history) and not self.selection_locked)
         self.redo_button.setEnabled(bool(self.canvas and self.canvas.future) and not self.selection_locked)
-        if self.canvas and self.canvas.selected_index is not None:
-            from .capture_markup import style_of
-            mark=self.canvas.marks[self.canvas.selected_index];style=style_of(mark)
-            for spin,value in ((self.width_spin,style['width']),(self.size_spin,style['size'])):
-                blocked=spin.blockSignals(True);spin.setValue(value);spin.blockSignals(blocked)
-            self.canvas.color=mark[4];self.canvas.line_width=self.width_spin.value();self.canvas.text_size=self.size_spin.value()
-            for button,color in zip(self.color_buttons,('#e34f45','#ec9b21','#377fde','#24825c')):button.setChecked(color==mark[4])
+        self.refresh_options()
     def paintEvent(self,event):
         p=QPainter(self);p.drawImage(QRectF(self.rect()),self.image);p.fillRect(self.rect(),QColor(12,25,21,112))
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.start is not None:
             r=self.selection_rect();sx,sy=self.image.width()/self.width(),self.image.height()/self.height()
             p.drawImage(r,self.image,QRectF(r.x()*sx,r.y()*sy,r.width()*sx,r.height()*sy))
-            p.setPen(QPen(QColor('#41d4a5'),1.5));p.setBrush(Qt.BrushStyle.NoBrush);p.drawRect(r)
+            p.setPen(QPen(QColor('#41d4a5'),3));p.setBrush(Qt.BrushStyle.NoBrush);p.drawRect(r)
             corner=min(15,r.width()/3,r.height()/3)
-            p.setPen(QPen(QColor('#71f3c6'),3,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
+            p.setPen(QPen(QColor('#71f3c6'),4,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
             for point,dx,dy in [(r.topLeft(),1,1),(r.topRight(),-1,1),(r.bottomLeft(),1,-1),(r.bottomRight(),-1,-1)]:
                 p.drawLine(point,point+QPointF(dx*corner,0));p.drawLine(point,point+QPointF(0,dy*corner))
-            p.setPen(QPen(QColor('#199774'),1.5));p.setBrush(QColor('#ffffff'))
-            for point in self.handles().values():p.drawEllipse(point,3.5,3.5)
+            p.setPen(QPen(QColor('#199774'),2));p.setBrush(QColor('#ffffff'))
+            for point in self.handles().values():p.drawEllipse(point,4,4)
             font=QFont('Microsoft YaHei UI');font.setPixelSize(12);p.setFont(font)
             pixel_width=max(0,min(self.image.width(),math.ceil(r.right()*sx))-max(0,math.floor(r.left()*sx)))
             pixel_height=max(0,min(self.image.height(),math.ceil(r.bottom()*sy))-max(0,math.floor(r.top()*sy)))

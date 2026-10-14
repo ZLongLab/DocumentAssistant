@@ -3,7 +3,7 @@ import copy,math
 from PySide6.QtCore import QPointF,QRectF,Qt,Signal
 from PySide6.QtGui import QColor,QPainter,QPainterPath,QPen
 from PySide6.QtWidgets import QWidget,QInputDialog
-from .capture_markup import draw_annotation,render_annotations,mark_bounds,style_of
+from .capture_markup import draw_annotation,render_annotations,mark_bounds,style_of,mosaic_path,pixelated_image
 
 class AnnotationCanvas(QWidget):
     changed=Signal()
@@ -16,6 +16,8 @@ class AnnotationCanvas(QWidget):
         self.start=self.end=None;self.zoom=None;self.pan=QPointF();self.drag_position=None
         self.selected_index=None;self.moving=None;self.move_before=None
         self.history=[];self.future=[];self.cached_marks=None;self.cached_image=None
+        self.stroke=[];self.mosaic_key=None;self.mosaic_image=None
+        self.brush_size=12;self.mosaic_block=6
     def image_rect(self):
         scale=self.scale()
         return QRectF((self.width()-self.image.width()*scale)/2+self.pan.x(),(self.height()-self.image.height()*scale)/2+self.pan.y(),self.image.width()*scale,self.image.height()*scale)
@@ -41,6 +43,11 @@ class AnnotationCanvas(QWidget):
         if self.cached_image is None or self.marks!=self.cached_marks:
             self.cached_image=render_annotations(self.image,self.marks);self.cached_marks=copy.deepcopy(self.marks)
         return self.cached_image
+    def mosaic_source(self):
+        key=(self.image.cacheKey(),self.mosaic_block)
+        if self.mosaic_key!=key:
+            self.mosaic_image=pixelated_image(self.image,self.mosaic_block);self.mosaic_key=key
+        return self.mosaic_image
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -48,13 +55,18 @@ class AnnotationCanvas(QWidget):
         rect=self.image_rect();p.setPen(Qt.PenStyle.NoPen);p.setBrush(QColor('#0c1821'));p.drawRoundedRect(rect.adjusted(-5,-5,5,7),5,5)
         p.fillRect(rect,QColor('white'));p.drawImage(rect,self.rendered())
         p.save();p.setClipRect(rect);p.translate(rect.topLeft());p.scale(self.scale(),self.scale())
-        if self.start is not None and self.end is not None:draw_annotation(p,self.new_mark(self.start,self.end),self.image.size())
+        if self.start is not None and self.end is not None:
+            draw_annotation(p,self.new_mark(self.start,self.end),self.image.size(),self.mosaic_source() if self.tool=='mask' else None)
         if self.selected_index is not None and self.selected_index<len(self.marks):
             p.setBrush(Qt.BrushStyle.NoBrush);p.setPen(QPen(QColor('#48e0b1'),1.5/self.scale(),Qt.PenStyle.DashLine))
             p.drawRect(mark_bounds(self.marks[self.selected_index],self.image.size()).adjusted(-4,-4,4,4))
         p.restore();p.setBrush(Qt.BrushStyle.NoBrush);p.setPen(QPen(QColor('#65717b'),1));p.drawRect(rect);p.end()
     def new_mark(self,start,end,text=''):
-        return (self.tool,QPointF(start),QPointF(end),text,self.color,{'width':self.line_width,'size':self.text_size})
+        style={'width':self.line_width,'size':self.text_size}
+        if self.tool=='mask':
+            style.update(brush=self.brush_size,block=self.mosaic_block)
+            style['path']=[(p.x()-start.x(),p.y()-start.y()) for p in self.stroke or [start]]
+        return (self.tool,QPointF(start),QPointF(end),text,self.color,style)
     def commit(self,marks,before=None):
         before=copy.deepcopy(self.marks) if before is None else before
         if before==marks:return
@@ -65,6 +77,7 @@ class AnnotationCanvas(QWidget):
         for index in range(len(self.marks)-1,-1,-1):
             mark=self.marks[index];bounds=mark_bounds(mark,self.image.size()).adjusted(-8/self.scale(),-8/self.scale(),8/self.scale(),8/self.scale())
             if not bounds.contains(point):continue
+            if mark[0]=='mask' and not mosaic_path(mark).contains(point):continue
             if mark[0]=='arrow':
                 a,b=mark[1:3];dx,dy=b.x()-a.x(),b.y()-a.y();length=dx*dx+dy*dy
                 t=max(0,min(1,((point.x()-a.x())*dx+(point.y()-a.y())*dy)/max(length,1)))
@@ -84,7 +97,8 @@ class AnnotationCanvas(QWidget):
         elif self.tool=='text':
             text,ok=QInputDialog.getText(self,'添加文字','文字内容（最多 500 字）')
             if ok and text.strip():self.append_mark(self.new_mark(point,point,text[:500]))
-        else:self.start=self.end=point;self.update()
+        else:
+            self.start=self.end=point;self.stroke=[QPointF(point)] if self.tool=='mask' else [];self.update()
     def mouseMoveEvent(self,event):
         if self.drag_position is not None:
             self.pan+=event.position()-self.drag_position;self.drag_position=event.position();self.clamp_pan();self.update();return
@@ -92,9 +106,14 @@ class AnnotationCanvas(QWidget):
         if self.moving is not None and point is not None:
             mark=list(self.move_before[self.selected_index]);delta=point-self.moving
             bounds=mark_bounds(mark,self.image.size())
+            if mark[0]=='mask':bounds=bounds.intersected(QRectF(0,0,self.image.width(),self.image.height()))
             delta=QPointF(max(-bounds.left(),min(self.image.width()-bounds.right(),delta.x())),max(-bounds.top(),min(self.image.height()-bounds.bottom(),delta.y())))
             mark[1]=QPointF(mark[1])+delta;mark[2]=QPointF(mark[2])+delta;self.marks[self.selected_index]=tuple(mark);self.update()
-        elif self.start is not None:self.end=point or self.end;self.update()
+        elif self.start is not None:
+            self.end=point or self.end
+            if self.tool=='mask' and point is not None and (point-self.stroke[-1]).manhattanLength()>=2:
+                self.stroke.append(QPointF(point))
+            self.update()
     def mouseReleaseEvent(self,event):
         if self.drag_position is not None and event.button() in (Qt.MouseButton.LeftButton,Qt.MouseButton.MiddleButton):
             self.drag_position=None;self.unsetCursor();return
@@ -103,8 +122,10 @@ class AnnotationCanvas(QWidget):
             self.mouseMoveEvent(event);self.commit(self.marks,self.move_before);self.moving=self.move_before=None
         elif self.start is not None:
             self.end=self.image_point(event.position()) or self.end
-            if math.hypot(self.end.x()-self.start.x(),self.end.y()-self.start.y())>=2:self.append_mark(self.new_mark(self.start,self.end))
-            self.start=self.end=None;self.update()
+            if self.tool=='mask' and self.end!=self.stroke[-1]:self.stroke.append(QPointF(self.end))
+            if self.tool=='mask' or math.hypot(self.end.x()-self.start.x(),self.end.y()-self.start.y())>=2:
+                self.append_mark(self.new_mark(self.start,self.end))
+            self.start=self.end=None;self.stroke=[];self.update()
     def mouseDoubleClickEvent(self,event):
         if self.tool=='select':
             point=self.image_point(event.position())
@@ -116,15 +137,19 @@ class AnnotationCanvas(QWidget):
         if self.selected_index is None or self.marks[self.selected_index][0]!='text':return
         mark=list(self.marks[self.selected_index]);text,ok=QInputDialog.getText(self,'修改文字','文字内容（最多 500 字）',text=mark[3])
         if ok and text.strip():mark[3]=text[:500];marks=list(self.marks);marks[self.selected_index]=tuple(mark);self.commit(marks)
-    def apply_style(self,color=None,width=None,size=None):
+    def apply_style(self,color=None,width=None,size=None,brush=None,block=None):
         if color is not None:self.color=color
         if width is not None:self.line_width=width
         if size is not None:self.text_size=size
+        if brush is not None:self.brush_size=brush
+        if block is not None:self.mosaic_block=block
         if self.selected_index is None:return
         mark=list(self.marks[self.selected_index]);style=dict(style_of(mark))
         if color is not None:mark[4]=color
         if width is not None:style['width']=width
         if size is not None:style['size']=size
+        if brush is not None:style['brush']=brush
+        if block is not None:style['block']=block
         mark=mark[:5]+[style];marks=list(self.marks);marks[self.selected_index]=tuple(mark);self.commit(marks)
     def undo(self):
         if self.history:self.future.append(copy.deepcopy(self.marks));self.marks=self.history.pop()

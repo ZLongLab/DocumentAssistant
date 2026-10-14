@@ -1,6 +1,6 @@
 """Edit screenshot annotations directly inside the selected screen region."""
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QCursor, QPainter, QPen
 from PySide6.QtWidgets import QLineEdit
 from .capture_canvas import AnnotationCanvas
 from .capture_markup import draw_annotation, mark_bounds
@@ -15,6 +15,8 @@ class InlineAnnotationCanvas(AnnotationCanvas):
         self.text_editor = None
         self.text_anchor = None
         self.editing_mark = None
+        self.brush_position = None
+        self.setMouseTracking(True)
         self.set_tool('view')
 
     def scale(self):
@@ -33,9 +35,15 @@ class InlineAnnotationCanvas(AnnotationCanvas):
         self.finish_text()
         self.tool = tool
         self.start = self.end = None
+        self.stroke = []
         self.selected_index = None
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, tool == 'view')
-        self.setCursor(Qt.CursorShape.ArrowCursor if tool == 'select' else Qt.CursorShape.CrossCursor)
+        self.brush_position = None
+        if tool == 'mask':
+            point=self.mapFromGlobal(QCursor.pos())
+            if self.rect().contains(point):self.brush_position=QPointF(point)
+        self.setCursor(Qt.CursorShape.BlankCursor if tool == 'mask' else
+                       Qt.CursorShape.ArrowCursor if tool == 'select' else Qt.CursorShape.CrossCursor)
         self.selection_changed.emit()
         self.update()
 
@@ -52,21 +60,36 @@ class InlineAnnotationCanvas(AnnotationCanvas):
         painter.save()
         painter.scale(self.width()/max(1,self.image.width()), self.height()/max(1,self.image.height()))
         if self.start is not None and self.end is not None:
-            draw_annotation(painter, self.new_mark(self.start,self.end), self.image.size())
+            draw_annotation(painter, self.new_mark(self.start,self.end), self.image.size(),
+                            self.mosaic_source() if self.tool == 'mask' else None)
         if self.selected_index is not None and self.selected_index < len(self.marks):
             painter.setPen(QPen(QColor('#41d4a5'),1.5/max(.01,self.scale()),Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(mark_bounds(self.marks[self.selected_index],self.image.size()).adjusted(-4,-4,4,4))
         painter.restore()
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor('#41d4a5'),1.5))
+        painter.setPen(QPen(QColor('#41d4a5'),3))
         painter.drawRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5))
         painter.setBrush(QColor('white'))
         x,y=self.width()/2,self.height()/2
         for point in (QPointF(0,0),QPointF(x,0),QPointF(self.width(),0),QPointF(self.width(),y),
                       QPointF(self.width(),self.height()),QPointF(x,self.height()),QPointF(0,self.height()),QPointF(0,y)):
-            painter.drawEllipse(point,3.5,3.5)
+            painter.drawEllipse(point,4,4)
+        if self.tool == 'mask' and self.brush_position is not None:
+            radius=self.brush_size*self.scale()/2
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor('#16232c'),3))
+            painter.drawEllipse(self.brush_position,radius,radius)
+            painter.setPen(QPen(QColor('white'),1))
+            painter.drawEllipse(self.brush_position,radius,radius)
         painter.end()
+
+    def enterEvent(self,event):
+        if self.tool=='mask':self.brush_position=QPointF(self.mapFromGlobal(QCursor.pos()));self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self,event):
+        self.brush_position=None;self.update();super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button()==Qt.MouseButton.RightButton:
@@ -85,6 +108,7 @@ class InlineAnnotationCanvas(AnnotationCanvas):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self.tool == 'mask':self.brush_position=event.position();self.update()
         if self.parentWidget().drag is not None:
             self.parentWidget().move_drag(event.position()+QPointF(self.pos()))
             return

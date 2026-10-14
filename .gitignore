@@ -22,6 +22,7 @@ backups/
 *.bak
 settings.json
 screenshot.json
+capture-tools.json
 app-instance.lock
 *.lnk
 *.pdf

@@ -250,7 +250,7 @@ class FileCard(QFrame):
         bg, ink, _ = COLORS.get(item.category,COLORS['其他'])
         self.badge.setText(item.category)
         self.artwork.update()
-        self.badge.setStyleSheet(f"background:{bg}; color:{ink}; border:0; border-radius:10px; padding:3px 9px; font-size:11px;")
+        self.badge.setStyleSheet(f"background:{bg}; color:{ink}; border:0; border-radius:10px; padding:3px 9px; font-size:12px;")
         self.combo.setStyleSheet(f"QComboBox {{background:{COLORS.get(item.category,COLORS['其他'])[0]}; color:{COLORS.get(item.category,COLORS['其他'])[1]}; border:1px solid #e0e3da; border-radius:9px; padding:5px 8px; font-weight:600;}}")
         self.filename.setText(self.filename.fontMetrics().elidedText(item.display_title or item.path.name, Qt.TextElideMode.ElideRight, max(150, self.width() - 26)))
         self.filename.setToolTip(str(item.path))
@@ -258,7 +258,7 @@ class FileCard(QFrame):
         self.meta.setToolTip(item.path.name+'\n'+item.title_source+'\n'+' · '.join(value for value in (item.course,item.project,item.tags) if value))
         self.state.setText(f"{status.text()} · {status.data(SUBTEXT)}")
         self.state.setToolTip(f"{item.status}\n{item.reason}\n{status.toolTip()}")
-        self.state.setStyleSheet("color:#91581c; font-size:10px;" if not item.status.startswith("已提取") else "color:#65716b; font-size:10px;")
+        self.state.setStyleSheet("color:#91581c; font-size:12px;" if not item.status.startswith("已提取") else "color:#65716b; font-size:12px;")
         self.setToolTip(item.reason)
         active = self.window.scan_table.currentRow() == self.row
         if self.property("active") != active:
@@ -299,8 +299,8 @@ class CardGrid(QScrollArea):
         self.content.setObjectName("cardContent")
         self.grid = QGridLayout(self.content)
         self.grid.setContentsMargins(0, 0, 4, 4)
-        self.grid.setHorizontalSpacing(14)
-        self.grid.setVerticalSpacing(14)
+        self.grid.setHorizontalSpacing(16)
+        self.grid.setVerticalSpacing(16)
         self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setWidget(self.content)
         self.viewport().installEventFilter(self)
@@ -336,7 +336,7 @@ class CardGrid(QScrollArea):
         return False
 
     def reflow(self):
-        columns = max(1, min(3, (self.viewport().width() + 14) // 228))
+        columns = max(1, min(3, (self.viewport().width() + 16) // 230))
         if columns == self.columns:
             return
         for i in range(3):

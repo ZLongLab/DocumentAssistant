@@ -216,8 +216,8 @@ QPushButton#sideButton:hover {{ background: {c['sidebar_hover']}; }}
 /* ── Page titles / labels ───────────────────────────────────────── */
 QLabel#pageTitle {{ font-size: 30px; font-weight: 700; color: {c['text']}; }}
 QLabel#subtitle {{ color: {c['muted']}; font-size: 15px; }}
-QLabel#steps {{ color: {c['muted']}; font-size: 12px; padding-top: 4px; }}
-QLabel#muted {{ color: {c['muted']}; font-size: 12px; }}
+QLabel#steps {{ color: {c['muted']}; font-size: 13px; padding-top: 4px; }}
+QLabel#muted {{ color: {c['muted']}; font-size: 13px; }}
 QLabel#sectionTitle {{ font-size: 19px; font-weight: 600; }}
 
 /* ── Panels / cards ─────────────────────────────────────────────── */
@@ -230,8 +230,8 @@ QScrollArea, QWidget#cardContent {{ background: transparent; border: 0; }}
 QFrame#fileCard {{ background: {c['card_bg']}; border: 1px solid {c['card_border']}; border-radius: {r_card}; }}
 QFrame#fileCard[active="true"] {{ border: 2px solid {c['card_active_border']}; background: {c['card_active_bg']}; }}
 QLabel#cardFilename {{ font-size: 15px; font-weight: 600; }}
-QLabel#cardMeta, QLabel#cardStatus {{ color: {c['muted']}; font-size: 11px; }}
-QLabel#categoryBadge {{ border-radius: 13px; padding: 5px 10px; font-size: 11px; font-weight: 600; }}
+QLabel#cardMeta, QLabel#cardStatus {{ color: {c['muted']}; font-size: 12px; }}
+QLabel#categoryBadge {{ border-radius: 13px; padding: 6px 11px; font-size: 12px; font-weight: 600; }}
 
 QPushButton#cardMore, QToolButton#cardMore, QPushButton#detailClose {{ background: transparent; border: 0; padding: 0; color: {c['muted']}; }}
 QPushButton#cardMore:hover, QPushButton#detailClose:hover {{ background: {c['selection_bg']}; }}
@@ -285,7 +285,7 @@ QProgressBar {{ border: 0; background: {c['disabled_bg']}; border-radius: 4px; t
 QProgressBar::chunk {{ background: {c['accent']}; border-radius: 4px; }}
 
 /* ── StatusBar ──────────────────────────────────────────────────── */
-QStatusBar {{ background: {c['statusbar_bg']}; color: {c['statusbar_text']}; font-size: 11px; border-top: 1px solid {c['border']}; }}
+QStatusBar {{ background: {c['statusbar_bg']}; color: {c['statusbar_text']}; font-size: 12px; border-top: 1px solid {c['border']}; }}
 QStatusBar::item {{ border: 0; }}
 
 /* ── Menu ───────────────────────────────────────────────────────── */
@@ -331,7 +331,7 @@ QFrame#sidebarFooter {{ background:{c['sidebar_footer']}; border:1px solid {c['s
 QLabel#footerCaption {{ color:{c['footer_text']}; font-size:11px; padding:0 8px; }}
 QLabel#sidebarPath {{ color:{'#eef5ff' if name == 'ocean' else '#f5e0e8'}; font-size:13px; font-weight:600; }}
 QFrame#footerSeparator {{ background:{c['sidebar_separator']}; border:0; margin:3px 8px; }}
-QPushButton#footerAction {{ color:{c['footer_text']}; background:transparent; border:0; border-radius:{r_input}; text-align:left; padding:7px 8px; font-size:14px; }}
+QPushButton#footerAction {{ color:{c['footer_text']}; background:transparent; border:0; border-radius:{r_input}; text-align:left; padding:9px 10px; font-size:14px; }}
 QPushButton#footerAction:hover {{ background:{c['footer_hover']}; }}
 QPushButton#footerAction:pressed {{ background:{'#254a68' if name == 'ocean' else '#6a3848'}; }}
 QPushButton#footerAction:focus {{ border:1px solid {c['scrollbar']}; }}
