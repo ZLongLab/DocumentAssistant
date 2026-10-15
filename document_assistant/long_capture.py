@@ -69,7 +69,7 @@ class LongControls(QWidget):
         top.addStretch(); cancel = QPushButton('取消'); cancel.clicked.connect(self.cancel_requested.emit); top.addWidget(cancel)
         self.finish_button = QPushButton('完成采集'); self.finish_button.setObjectName('longFinish')
         self.finish_button.clicked.connect(self.finish_requested.emit); top.addWidget(self.finish_button); layout.addLayout(top)
-        self.status = QLabel('在选区内每次向下滚动半屏，停一下'); layout.addWidget(self.status)
+        self.status = QLabel('在选区内向下滚动，自动采集中间画面'); layout.addWidget(self.status)
         hint = QLabel(hotkey + ' 完成采集  ·  只框选正文，避开固定导航'); layout.addWidget(hint)
         self.setFixedWidth(460); self.adjustSize()
 
@@ -92,7 +92,7 @@ class LongCaptureSession(QObject):
         global_rect = QRectF(rect); global_rect.translate(self.geometry.topLeft())
         self.position = controls_position(screen.availableGeometry(), global_rect, self.controls.size())
         self.global_rect = global_rect
-        self.timer = QTimer(self); self.timer.setInterval(400); self.timer.timeout.connect(self.poll)
+        self.timer = QTimer(self); self.timer.setInterval(200); self.timer.timeout.connect(self.poll)
 
     def frame(self):
         if self.screen.geometry() != self.geometry:
@@ -123,10 +123,8 @@ class LongCaptureSession(QObject):
             return
         try:
             image = self.frame()
-            if not frames_settled(self.pending, image):
-                self.pending = image
-                self.controls.status.setText('正在等待正文停稳；滚动后请稍停一下')
-                return
+            # Verify every captured overlap, including frames during a scroll.
+            # Waiting for two stationary frames loses the intermediate screens.
             self.pending = image
             result = self.stitcher.append(image)
             messages = {'appended': '已拼接新内容，继续向下滚动', 'unchanged': '等待向下滚动；到页底后点完成',

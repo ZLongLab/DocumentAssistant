@@ -12,14 +12,14 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 
 ## 下载和安装
 
-当前版本 **0.23.2**，适用于 Windows 10 / 11 x64。
+当前版本 **0.23.3**，适用于 Windows 10 / 11 x64。
 
 前往 [Releases](https://github.com/ZLongLab/DocumentAssistant/releases/latest)，选择：
 
 | 文件 | 使用方式 |
 | --- | --- |
-| `DocumentAssistant-0.23.2-Windows-x64-Setup.exe` | 双击安装，可选择目录并创建快捷方式；无需另装 Python |
-| `DocumentAssistant-0.23.2-Windows-x64-Portable.zip` | 解压整个文件夹，双击 `DocumentAssistant.exe`；请保留 `_internal` 目录 |
+| `DocumentAssistant-0.23.3-Windows-x64-Setup.exe` | 双击安装，可选择目录并创建快捷方式；无需另装 Python |
+| `DocumentAssistant-0.23.3-Windows-x64-Portable.zip` | 解压整个文件夹，双击 `DocumentAssistant.exe`；请保留 `_internal` 目录 |
 | `SHA256SUMS.txt` | 下载文件的 SHA256 校验值 |
 
 有 D 盘时，安装向导默认使用 `D:\Apps\DocumentAssistant`；也可以选择其他位置。
@@ -58,7 +58,7 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 
 1. 按截图快捷键，在模式栏选择“长截图”。
 2. 只框选需要的正文区域，避开固定导航和滚动条，按 Enter 开始。
-3. 在选区内每次向下滚动约半屏，停一下，程序自动匹配并拼接新内容。
+3. 在选区内向下滚动，程序持续采集中间画面并匹配拼接；滚动过快时稍停一下。
 4. 点击“完成采集”、按 Enter，或再按截图快捷键结束；进入长图预览后可以标注、复制或保存 PNG。
 
 预览默认适应宽度，滚轮浏览，Ctrl+滚轮缩放。默认操作仍为“完成 · 复制”，

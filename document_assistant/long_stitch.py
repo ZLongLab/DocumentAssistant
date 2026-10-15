@@ -129,7 +129,7 @@ class VerticalStitcher:
     def append(self, frame):
         if frame.isNull() or frame.size() != self.previous.size():
             return StitchResult('size_changed')
-        if frame == self.previous:
+        if frames_settled(self.previous, frame):
             return StitchResult('unchanged')
         signatures = row_signatures(frame)
         if signatures == self.signatures:
