@@ -31,6 +31,7 @@ class SelectionOverlay(QWidget):
     selected=Signal(object)
     save_selected=Signal(object)
     video_selected=Signal(object)
+    long_selected=Signal(object)
     mode_changed=Signal(str)
     cancelled=Signal()
     preferences_changed=Signal(object)
@@ -46,7 +47,7 @@ class SelectionOverlay(QWidget):
         self.modes=QFrame(self);self.modes.setObjectName('selectionPanel');self.modes.setStyleSheet(PANEL_STYLE);panel_shadow(self.modes)
         modes=QHBoxLayout(self.modes);modes.setContentsMargins(7,7,14,7);modes.setSpacing(5)
         self.mode_group=QButtonGroup(self);self.mode_buttons={}
-        for key,label in [('photo','拍照'),('video','视频')]:
+        for key,label in [('photo','拍照'),('long','长截图'),('video','视频')]:
             button=QPushButton(label);button.setCheckable(True);button.setMinimumWidth(72);button.setFixedHeight(38)
             self.mode_group.addButton(button);modes.addWidget(button)
             button.clicked.connect(lambda checked=False,value=key:self.set_mode(value,True));self.mode_buttons[key]=button
@@ -114,14 +115,15 @@ class SelectionOverlay(QWidget):
         if not hasattr(self,'hint_label'):return
         hint='框选后直接标注  ·  Enter 复制  ·  Esc 取消'
         if self.mode=='video':hint='无声录屏  ·  '+self.stop_key+' 停止'
+        if self.mode=='long':hint='框选正文后滚动页面  ·  Enter 开始'
         if self.selection_locked:hint='区域已锁定  ·  Esc 取消'
         if self.error_text:hint=self.error_text
         self.hint_label.setToolTip('拖动选取区域；拖动边缘调整大小，内部移动。'+hint)
-        width=max(70,min(320,self.width()-260))
+        width=max(70,min(320,self.width()-350))
         self.hint_label.setText(self.hint_label.fontMetrics().elidedText(hint,Qt.TextElideMode.ElideRight,width))
         self.hint_label.setMaximumWidth(width)
         for mode,button in self.mode_buttons.items():
-            button.setIcon(line_icon('capture' if mode=='photo' else 'video','#ffffff' if button.isChecked() else '#6a8574'))
+            button.setIcon(line_icon('video' if mode=='video' else 'capture','#ffffff' if button.isChecked() else '#6a8574'))
             button.setIconSize(QSize(16,16))
         self.modes.adjustSize();self.modes.move(max(12,(self.width()-self.modes.width())//2),22)
     def resizeEvent(self,event):
@@ -134,8 +136,8 @@ class SelectionOverlay(QWidget):
         if self.canvas:self.canvas.finish_text();self.canvas.setVisible(mode=='photo')
         for widget in self.photo_controls:widget.setVisible(mode=='photo')
         self.refresh_options()
-        self.confirm_button.setText('开始录制  ↵' if mode=='video' else '完成 · 复制')
-        self.confirm_button.setToolTip('开始无声录屏' if mode=='video' else '仅复制，不创建图片文件 · Enter')
+        self.confirm_button.setText('开始录制  ↵' if mode=='video' else '开始长截图  ↵' if mode=='long' else '完成 · 复制')
+        self.confirm_button.setToolTip('开始无声录屏' if mode=='video' else '框选区域内向下滚动，自动拼接' if mode=='long' else '仅复制，不创建图片文件 · Enter')
         self.confirm_button.setIcon(line_icon('video' if mode=='video' else 'check','#ffffff'))
         self.refresh_toolbar()
         if self.actions.isVisible():self.position_actions()
@@ -355,6 +357,11 @@ class SelectionOverlay(QWidget):
         if self.start is None:return
         if self.mode=='video':
             if self.selection_rect().width()>=2 and self.selection_rect().height()>=2:self.video_selected.emit(self.selection_rect())
+            return
+        if self.mode=='long':
+            if self.selection_rect().width()>=80 and self.selection_rect().height()>=80:
+                self.long_selected.emit(self.selection_rect())
+            else:self.show_error('长截图请框选至少 80 × 80 的正文区域')
             return
         if keyboard and self.canvas and self.canvas.text_editor is not None:
             self.canvas.finish_text();self.setFocus();return

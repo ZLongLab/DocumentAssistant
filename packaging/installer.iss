@@ -7,7 +7,7 @@
 [Setup]
 AppId={{34F0E85B-EC8D-4D95-B87B-70D7B3F994B2}
 AppName=DocumentAssistant
-AppVersion=0.22.0
+AppVersion=0.23.0
 AppPublisher=ZLongLab
 AppPublisherURL=https://github.com/ZLongLab/DocumentAssistant
 DefaultDirName={code:DefaultInstallDir}
@@ -18,7 +18,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDirPath}
-OutputBaseFilename=DocumentAssistant-0.22.0-Windows-x64-Setup
+OutputBaseFilename=DocumentAssistant-0.23.0-Windows-x64-Setup
 SetupIconFile=..\document_assistant\documentassistant.ico
 UninstallDisplayIcon={app}\DocumentAssistant.exe
 Compression=lzma2/fast
@@ -38,6 +38,12 @@ Name: "desktopicon"; Description: "{cm:DesktopShortcut}"; GroupDescription: "{cm
 
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Remove only obsolete build-host system DLL copies from this app's own bundle.
+Type: files; Name: "{app}\_internal\api-ms-win-*.dll"
+Type: files; Name: "{app}\_internal\ext-ms-win-*.dll"
+Type: files; Name: "{app}\_internal\ucrtbase.dll"
 
 [Icons]
 Name: "{group}\DocumentAssistant"; Filename: "{app}\DocumentAssistant.exe"; AppUserModelID: "DocumentAssistant.Workbench"

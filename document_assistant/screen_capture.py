@@ -301,6 +301,7 @@ class CaptureController:
         self.exiting=False;self.exit_pending=False;self.stopped=False;self.last_saved=None
         self.from_hotkey=False;self.previous_foreground=None
         self.recording=None;self.record_controls=None;self.video_stop=None;self.last_video=None
+        self.long_capture=None;self.long_stop=None
         self.video_countdown=QTimer(window);self.video_countdown.setInterval(1000)
         self.video_countdown.timeout.connect(self.countdown_video)
         self.tray=None
@@ -311,6 +312,7 @@ class CaptureController:
                 menu=QMenu(window)
                 menu.addAction('框选截图',self.begin);menu.addAction('打开文件管理',self.show_main)
                 self.video_stop=menu.addAction('停止视频录制',self.stop_recording);self.video_stop.setEnabled(False)
+                self.long_stop=menu.addAction('结束长截图',self.finish_long);self.long_stop.setEnabled(False)
                 menu.addAction('截图设置',self.show_settings);menu.addAction('打开截图保存目录',self.open_directory)
                 menu.addAction('打开最近保存的截图',self.open_last)
                 menu.addAction('打开最近保存的视频',self.open_last_video)
@@ -326,6 +328,7 @@ class CaptureController:
         self.update_entry()
 
     def configure(self,hotkey,directory):
+        if self.long_capture and not self.long_capture.done:raise ValueError('请先完成或取消当前长截图')
         if self.recording and not self.recording.done:raise ValueError('请先完成或取消当前录制，再修改截图设置')
         path=Path(directory).expanduser()
         if not directory.strip() or not path.is_absolute():raise ValueError('请填写完整的截图保存目录')
@@ -349,7 +352,7 @@ class CaptureController:
         key=self.settings['hotkey']
         active=hasattr(self,'hotkey') and self.hotkey.ident is not None
         self.window.screenshot_button.setText(('框选截图  '+key if len(key)<=7 else '框选截图') if active else '框选截图 · 热键未启用')
-        self.window.screenshot_button.setToolTip(('截图快捷键 '+key if active else key+' 未启用，可能被占用；仍可点击截图')+'；框选界面可切换视频，录制时再按热键停止')
+        self.window.screenshot_button.setToolTip(('截图快捷键 '+key if active else key+' 未启用，可能被占用；仍可点击截图')+'；可切换长截图或视频，再按热键完成采集或停止录制')
 
     def remember_tools(self,value):
         self.tool_preferences=normalize_tools(value)
@@ -357,6 +360,8 @@ class CaptureController:
         except OSError as exc:self.window.statusBar().showMessage('本次工具设置可用，但未能保存：'+str(exc),10000)
 
     def show_settings(self):
+        if self.long_capture and not self.long_capture.done:
+            self.notify('请先完成长截图','完成采集或取消后再修改截图设置');return
         if self.recording and not self.recording.done:
             self.notify('正在录制','请先停止或取消录制，再修改截图设置');return
         CaptureSettingsDialog(self).exec()
@@ -370,6 +375,8 @@ class CaptureController:
         self.window.showNormal();self.window.raise_();self.window.activateWindow()
 
     def begin(self,*_,from_hotkey=False):
+        if self.long_capture and not self.long_capture.done:
+            self.finish_long();return
         if getattr(self,'recording',None) and not self.recording.done:
             self.stop_recording();return
         if self.capturing or self.exiting or self.window.closing:return
@@ -393,6 +400,7 @@ class CaptureController:
                 overlay.stop_key=self.hotkey.text if self.hotkey.ident is not None else '托盘菜单'
                 overlay.refresh_toolbar()
                 overlay.video_selected.connect(lambda rect,target=screen:self.begin_video(target,rect))
+                overlay.long_selected.connect(lambda rect,target=screen:self.begin_long(target,rect))
                 overlay.mode_changed.connect(self.change_capture_mode)
                 directory=Path(self.settings['directory']).resolve()
                 desktop=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)).resolve()
@@ -448,6 +456,49 @@ class CaptureController:
 
     def change_capture_mode(self,mode):
         for overlay in self.overlays:overlay.set_mode(mode)
+
+    def is_desktop_destination(self):
+        desktop=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
+        return bool(desktop) and Path(self.settings['directory']).resolve()==Path(desktop).resolve()
+
+    def begin_long(self,screen,rect):
+        if self.long_capture or self.recording:return
+        try:
+            from .long_capture import LongCaptureSession
+            key=self.hotkey.text if self.hotkey.ident is not None else 'Enter / 托盘菜单'
+            session=LongCaptureSession(screen,rect,key,self.window);self.long_capture=session
+            session.completed.connect(self.long_completed);session.failed.connect(self.long_failed)
+            session.cancelled.connect(self.long_cancelled)
+            self.close_overlays()
+            if self.long_stop:self.long_stop.setEnabled(True)
+            if self.tray:self.tray.setToolTip('正在采集长截图 · '+key+' 完成')
+            if self.from_hotkey:restore_foreground(self.previous_foreground)
+            QTimer.singleShot(220,lambda:session.start() if self.long_capture is session and not session.done else None)
+        except Exception as exc:self.long_failed(str(exc))
+
+    def finish_long(self,*_):
+        if self.long_capture:self.long_capture.finish()
+
+    def long_completed(self,image,warning,segments):
+        session,self.long_capture=self.long_capture,None
+        if session:session.deleteLater()
+        if self.long_stop:self.long_stop.setEnabled(False)
+        try:
+            from .long_editor import LongImageEditor
+            self.editor=LongImageEditor(image,self,warning,segments)
+            self.editor.finished.connect(self.finished)
+            try:area=session.screen.availableGeometry() if session else self.app.primaryScreen().availableGeometry()
+            except RuntimeError:area=self.app.primaryScreen().availableGeometry()
+            self.editor.resize(min(self.editor.width(),area.width()-32),min(self.editor.height(),area.height()-48))
+            self.editor.move(area.x()+(area.width()-self.editor.width())//2,area.y()+(area.height()-self.editor.height())//2)
+            self.editor.show();self.editor.raise_();self.editor.activateWindow()
+        except Exception as exc:self.long_failed(str(exc))
+
+    def long_cancelled(self):
+        self.finished()
+
+    def long_failed(self,message):
+        self.close_overlays();self.finished();self.notify('长截图未完成',message)
 
     def begin_video(self,screen,rect):
         if self.recording:return
@@ -531,6 +582,12 @@ class CaptureController:
         self.close_overlays();self.finished();self.notify('录制失败',message)
 
     def finished(self,*_):
+        session,self.long_capture=self.long_capture,None
+        if session:
+            session.blockSignals(True)
+            if not session.done:session.cancel()
+            session.deleteLater()
+        if self.long_stop:self.long_stop.setEnabled(False)
         editor,self.editor=self.editor,None
         if editor:editor.deleteLater()
         if getattr(self,'recording',None):
@@ -557,6 +614,8 @@ class CaptureController:
             QTimer.singleShot(0,lambda:restore_foreground(target))
 
     def cancel(self):
+        if self.long_capture and not self.long_capture.done:
+            self.long_capture.cancel();return
         if self.recording and self.recording.frames and not self.recording.done:
             self.stop_recording();return
         self.close_overlays();self.finished()
@@ -587,6 +646,8 @@ class CaptureController:
         if self.stopped:return
         self.stopped=True;self.exiting=True
         self.close_overlays();self.hotkey.shutdown()
+        if self.long_capture:
+            self.long_capture.blockSignals(True);self.long_capture.cancel();self.long_capture.deleteLater();self.long_capture=None
         self.video_countdown.stop()
         if self.recording:
             self.recording.keep_file=True

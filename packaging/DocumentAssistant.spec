@@ -14,6 +14,11 @@ a = Analysis([str(root / 'desktop.py')], pathex=[str(root)], binaries=[], datas=
              hiddenimports=['document_assistant.extractor'],
              excludes=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick',
                        'PySide6.QtQml', 'PySide6.QtQuick', 'tkinter', 'PIL', 'unittest', 'pytest'])
+# Windows 10+ supplies the Universal CRT and API-set contracts. Shipping copies
+# from the build host can select incompatible exports on the destination machine.
+a.binaries = [entry for entry in a.binaries
+              if not Path(entry[0]).name.lower().startswith(('api-ms-win-', 'ext-ms-win-'))
+              and Path(entry[0]).name.lower() != 'ucrtbase.dll']
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='DocumentAssistant', console=False,
           icon=str(root / 'document_assistant' / 'documentassistant.ico'),
