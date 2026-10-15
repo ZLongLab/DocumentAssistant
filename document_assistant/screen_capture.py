@@ -1,8 +1,9 @@
 """Local screen selection, editable annotations, PNG export and tray lifecycle."""
 import json
-from .capture_focus import foreground_window, restore_foreground
+from .capture_focus import foreground_window, restore_foreground, window_owner
 import math
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from PySide6.QtCore import (QBuffer, QByteArray, QIODevice, QPointF, QRectF, Qt,
@@ -296,7 +297,10 @@ class CaptureController:
                 self.settings={'hotkey':hotkey,'directory':directory}
         except Exception as exc:window.statusBar().showMessage('截图设置读取失败，使用默认设置：'+str(exc))
         self.update_entry()
-        self.hotkey=GlobalHotkey(self.app,lambda:self.begin(from_hotkey=True))
+        self.shortcut_frame=None
+        self.shortcut_expiry=QTimer(window);self.shortcut_expiry.setSingleShot(True)
+        self.shortcut_expiry.timeout.connect(self.clear_shortcut_frame)
+        self.hotkey=GlobalHotkey(self.app,lambda:self.begin(from_hotkey=True),self.freeze_shortcut_frame,self.clear_shortcut_frame)
         self.overlays=[];self.editor=None;self.capturing=False;self.restore_main=False
         self.exiting=False;self.exit_pending=False;self.stopped=False;self.last_saved=None
         self.from_hotkey=False;self.previous_foreground=None
@@ -374,6 +378,33 @@ class CaptureController:
         if self.capturing:return
         self.window.showNormal();self.window.raise_();self.window.activateWindow()
 
+    def clear_shortcut_frame(self):
+        self.shortcut_frame=None;self.shortcut_expiry.stop()
+
+    def screen_layout(self):
+        return [(s.name(),s.geometry(),s.devicePixelRatio()) for s in self.app.screens()]
+
+    def freeze_shortcut_frame(self,new_gesture=True):
+        if self.capturing or self.exiting or self.stopped or self.window.closing:return
+        if self.window.isActiveWindow() or QApplication.activeModalWidget():return
+        if new_gesture:self.clear_shortcut_frame()
+        owner=window_owner(foreground_window())
+        if not owner:return
+        now=time.monotonic()
+        if not new_gesture and self.shortcut_frame and now-self.shortcut_frame[0]<1.0 and self.shortcut_frame[1]==owner:return
+        layout=self.screen_layout()
+        images=[s.grabWindow(0).toImage() for s in self.app.screens()]
+        if images and not any(image.isNull() for image in images):
+            # One short-lived frame in memory, never a background recording or file.
+            self.shortcut_frame=(now,owner,layout,images)
+            self.shortcut_expiry.start(1000)
+
+    def take_shortcut_frame(self):
+        saved=self.shortcut_frame;self.clear_shortcut_frame()
+        if saved and time.monotonic()-saved[0]<=1.0 and saved[1]==window_owner(foreground_window()) and saved[2]==self.screen_layout():
+            return list(zip(self.app.screens(),saved[3]))
+        return None
+
     def begin(self,*_,from_hotkey=False):
         if self.long_capture and not self.long_capture.done:
             self.finish_long();return
@@ -385,14 +416,19 @@ class CaptureController:
         self.capturing=True
         self.from_hotkey=from_hotkey
         self.previous_foreground=foreground_window() if from_hotkey else None
-        self.restore_main=self.window.isVisible() and not self.window.isMinimized()
-        self.window.hide()
-        QTimer.singleShot(180,self.snapshot)
+        frames=self.take_shortcut_frame() if from_hotkey else None
+        hide_main=not from_hotkey or self.window.isActiveWindow()
+        self.restore_main=hide_main and self.window.isVisible() and not self.window.isMinimized()
+        if hide_main:
+            self.clear_shortcut_frame();self.window.hide()
+            QTimer.singleShot(180,self.snapshot)
+        else:
+            self.snapshot(frames)
 
-    def snapshot(self):
+    def snapshot(self,frames=None):
         if self.exiting or not self.capturing:return
         try:
-            frames=[(screen,screen.grabWindow(0).toImage()) for screen in self.app.screens()]
+            if frames is None:frames=[(screen,screen.grabWindow(0).toImage()) for screen in self.app.screens()]
             if not frames or any(image.isNull() for _,image in frames):raise OSError('无法读取屏幕画面')
             for screen,image in frames:
                 overlay=SelectionOverlay(screen,image,self.tool_preferences)
@@ -643,6 +679,7 @@ class CaptureController:
         self.window.close()
 
     def shutdown(self):
+        self.clear_shortcut_frame()
         if self.stopped:return
         self.stopped=True;self.exiting=True
         self.close_overlays();self.hotkey.shutdown()

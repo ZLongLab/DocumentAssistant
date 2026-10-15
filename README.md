@@ -12,14 +12,14 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 
 ## 下载和安装
 
-当前版本 **0.23.0**，适用于 Windows 10 / 11 x64。
+当前版本 **0.23.1**，适用于 Windows 10 / 11 x64。
 
 前往 [Releases](https://github.com/ZLongLab/DocumentAssistant/releases/latest)，选择：
 
 | 文件 | 使用方式 |
 | --- | --- |
-| `DocumentAssistant-0.23.0-Windows-x64-Setup.exe` | 双击安装，可选择目录并创建快捷方式；无需另装 Python |
-| `DocumentAssistant-0.23.0-Windows-x64-Portable.zip` | 解压整个文件夹，双击 `DocumentAssistant.exe`；请保留 `_internal` 目录 |
+| `DocumentAssistant-0.23.1-Windows-x64-Setup.exe` | 双击安装，可选择目录并创建快捷方式；无需另装 Python |
+| `DocumentAssistant-0.23.1-Windows-x64-Portable.zip` | 解压整个文件夹，双击 `DocumentAssistant.exe`；请保留 `_internal` 目录 |
 | `SHA256SUMS.txt` | 下载文件的 SHA256 校验值 |
 
 有 D 盘时，安装向导默认使用 `D:\Apps\DocumentAssistant`；也可以选择其他位置。
@@ -50,6 +50,7 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 马赛克支持自由涂抹，圆形光标预览笔刷范围；笔刷和颗粒大小可分别调整。
 各工具记住自己的颜色和尺寸。Ctrl+Z 撤销，Ctrl+Y 重做，Esc 取消。
 快捷键可在设置中修改；已有用户会保留自己的设置。
+需要截取下拉菜单时，先展开菜单，再直接按完整截图快捷键；程序会尽量保留按键前的菜单画面。
 
 ![框选、标注和自由马赛克演示](docs/capture-workflow.gif)
 

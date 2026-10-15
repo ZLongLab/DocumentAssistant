@@ -1,8 +1,9 @@
-"""Windows global hotkeys scoped to this running process, without keyboard hooks."""
+"""Windows global hotkeys and an optional modifier-edge screenshot preview."""
 import ctypes
 import sys
 from ctypes import wintypes
 from PySide6.QtCore import QAbstractNativeEventFilter, QTimer
+from .capture_freeze import ModifierCapture
 
 
 def parse_hotkey(text):
@@ -25,12 +26,13 @@ def parse_hotkey(text):
 
 
 class GlobalHotkey(QAbstractNativeEventFilter):
-    def __init__(self, app, callback):
+    def __init__(self, app, callback, before_modifier=None, clear_preview=None):
         super().__init__()
         self.app, self.callback = app, callback
         self.ident = None
         self.sequence = 0xDA0  # application IDs must be below 0xC000
         self.text = ''
+        self.preview = ModifierCapture(lambda: self.text if self.ident is not None else '', before_modifier, clear_preview or (lambda:None)) if before_modifier else None
         if sys.platform=='win32':
             self.user32 = ctypes.WinDLL('user32', use_last_error=True)
             self.user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
@@ -51,6 +53,7 @@ class GlobalHotkey(QAbstractNativeEventFilter):
     def commit(self, prepared):
         if self.ident is not None:self.user32.UnregisterHotKey(None, self.ident)
         self.ident, self.text = prepared
+        if self.preview:self.preview.start()
 
     def rollback(self, prepared):
         self.user32.UnregisterHotKey(None, prepared[0])
@@ -64,6 +67,7 @@ class GlobalHotkey(QAbstractNativeEventFilter):
         return False,0
 
     def shutdown(self):
+        if self.preview:self.preview.shutdown()
         if sys.platform=='win32':
             if self.ident is not None:self.user32.UnregisterHotKey(None,self.ident)
             self.app.removeNativeEventFilter(self)
