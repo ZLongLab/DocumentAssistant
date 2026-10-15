@@ -12,14 +12,14 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 
 ## 下载和安装
 
-当前版本 **0.23.1**，适用于 Windows 10 / 11 x64。
+当前版本 **0.23.2**，适用于 Windows 10 / 11 x64。
 
 前往 [Releases](https://github.com/ZLongLab/DocumentAssistant/releases/latest)，选择：
 
 | 文件 | 使用方式 |
 | --- | --- |
-| `DocumentAssistant-0.23.1-Windows-x64-Setup.exe` | 双击安装，可选择目录并创建快捷方式；无需另装 Python |
-| `DocumentAssistant-0.23.1-Windows-x64-Portable.zip` | 解压整个文件夹，双击 `DocumentAssistant.exe`；请保留 `_internal` 目录 |
+| `DocumentAssistant-0.23.2-Windows-x64-Setup.exe` | 双击安装，可选择目录并创建快捷方式；无需另装 Python |
+| `DocumentAssistant-0.23.2-Windows-x64-Portable.zip` | 解压整个文件夹，双击 `DocumentAssistant.exe`；请保留 `_internal` 目录 |
 | `SHA256SUMS.txt` | 下载文件的 SHA256 校验值 |
 
 有 D 盘时，安装向导默认使用 `D:\Apps\DocumentAssistant`；也可以选择其他位置。
@@ -65,6 +65,8 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 保存是旁边的次要入口。采集过程中可按 Esc 取消，或通过托盘结束长截图。
 
 找不到可靠重叠时会提示调整，不会强行拼接；向上滚动不会追加内容。
+局部悬浮按钮、小动画和轻微重绘会做容错；采集时可查看段数和像素高度是否增加。
+尚未拼接会明确提示，结束时若仍只有一屏，预览会显示原因与重新采集说明。
 请使用静态页面并逐段向下滚动，动态视频、重复图案和滚动后始终变化的内容可能无法拼接。
 长图最多 20,000 像素高且不超过 2,400 万像素，达到上限后保留已采集内容。
 

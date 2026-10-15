@@ -30,55 +30,84 @@ def informative(row):
 
 def vertical_shift(previous, current, raw_previous=None, raw_current=None):
     height = len(previous)
-    overlap_min = max(48, height // 3)
+    overlap_min = max(48, height // 5)
     max_shift = height - overlap_min
     if max_shift < 2:
         return None
+    raw_previous = raw_previous or [bytes(v * 8 for v in row) for row in previous]
+    raw_current = raw_current or [bytes(v * 8 for v in row) for row in current]
+    # A floating button or a small repaint must not invalidate an entire row.
+    # Independent horizontal bands supply candidates; raw pixels verify them.
     positions = defaultdict(list)
     for y, row in enumerate(previous):
-        if informative(row):
-            positions[row].append(y)
+        for band in range(6):
+            token = bytes(v // 2 for v in row[band * 12:(band + 1) * 12])
+            if max(token) - min(token) >= 2:
+                positions[band, token].append(y)
     votes = Counter()
-    step = max(1, height // 180)
+    step = max(1, height // 200)
     for y in range(0, height, step):
         row = current[y]
-        if not informative(row):
-            continue
-        for old in positions.get(row, ()):
-            shift = old - y
-            if 2 <= abs(shift) <= max_shift:
-                votes[shift] += 1
+        for band in range(6):
+            token = bytes(v // 2 for v in row[band * 12:(band + 1) * 12])
+            matches = positions.get((band, token), ())
+            if len(matches) > 80:
+                continue  # Repeated patterns are not reliable anchors.
+            for old in matches:
+                shift = old - y
+                if shift == 0 or 2 <= abs(shift) <= max_shift:
+                    votes[shift] += 1
+    shifts = {0}
+    for shift, count in votes.most_common(16):
+        if count >= 4:
+            shifts.update(s for s in (shift - 1, shift, shift + 1)
+                          if s == 0 or 2 <= abs(s) <= max_shift)
     candidates = []
-    for shift, count in votes.most_common(12):
-        if count < 4:
-            continue
+    for shift in shifts:
         old_start = max(0, shift); new_start = max(0, -shift)
         overlap = height - abs(shift)
-        matched = total = 0
-        for y in range(overlap):
-            a, b = previous[old_start + y], current[new_start + y]
-            if informative(a) or informative(b):
-                total += 1
-                matched += a == b
-        if total >= 20 and matched / total >= .90:
-            error = 0.
-            if raw_previous is not None and raw_current is not None:
-                count_pixels = 0
-                for y in range(0, overlap, max(1, overlap // 100)):
-                    a, b = raw_previous[old_start + y], raw_current[new_start + y]
-                    for x in range(0, len(a), 3):
-                        error += abs(a[x] - b[x]); count_pixels += 1
-                error /= max(1, count_pixels)
-            candidates.append((-error, matched / total, matched, shift))
+        good = []; total = 0; error = 0.
+        for y in range(0, overlap, max(1, overlap // 320)):
+            a, b = raw_previous[old_start + y], raw_current[new_start + y]
+            errors = []
+            for band in range(6):
+                left, right = a[band * 12:(band + 1) * 12], b[band * 12:(band + 1) * 12]
+                if max(left) - min(left) >= 24 or max(right) - min(right) >= 24:
+                    errors.append(sum(abs(x - z) for x, z in zip(left, right)) / 12)
+            if not errors:
+                continue
+            errors.sort()
+            retained = errors[:-1] if len(errors) >= 3 else errors
+            difference = sum(retained) / len(retained)
+            total += 1; error += difference
+            if difference <= 5.0:
+                good.append(y)
+        if len(good) >= 20 and len(good) / max(1, total) >= .72 and good[-1] - good[0] >= min(96, overlap * .35):
+            candidates.append((len(good) / total, -error / total, len(good), shift))
     if not candidates:
         return None
     candidates.sort(reverse=True)
     best = candidates[0]
     # Repeated rows/patterns must not silently duplicate or skip content.
-    if any(abs(other[3] - best[3]) > 2 and other[0] >= best[0] - .1 and other[1] >= best[1] - .025
+    if any(abs(other[3] - best[3]) > 2 and other[0] >= best[0] - .025 and other[1] >= best[1] - .35
            and other[2] >= best[2] * .85 for other in candidates[1:]):
         return None
     return best[3]
+
+
+def frames_settled(previous, current):
+    """Allow local hover/animation changes while requiring the text to stop."""
+    if previous is None or previous.size() != current.size():
+        return False
+    if previous == current:
+        return True
+    left, right = row_signatures(previous, False), row_signatures(current, False)
+    stable = total = 0
+    for a, b in zip(left, right):
+        if max(a) - min(a) >= 24 or max(b) - min(b) >= 24:
+            total += 1
+            stable += sum(abs(x - y) for x, y in zip(a, b)) / len(a) <= 2.5
+    return total >= 20 and stable / total >= .80
 
 
 class VerticalStitcher:
@@ -109,6 +138,8 @@ class VerticalStitcher:
         shift = vertical_shift(self.signatures, signatures, self.raw_signatures, raw)
         if shift is None:
             return StitchResult('no_overlap')
+        if shift == 0:
+            return StitchResult('unchanged')
         if shift < 0:
             return StitchResult('upward')
         new_height = self.height + shift

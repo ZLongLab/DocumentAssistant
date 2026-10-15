@@ -7,7 +7,7 @@
 [Setup]
 AppId={{34F0E85B-EC8D-4D95-B87B-70D7B3F994B2}
 AppName=DocumentAssistant
-AppVersion=0.23.1
+AppVersion=0.23.2
 AppPublisher=ZLongLab
 AppPublisherURL=https://github.com/ZLongLab/DocumentAssistant
 DefaultDirName={code:DefaultInstallDir}
@@ -18,7 +18,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDirPath}
-OutputBaseFilename=DocumentAssistant-0.23.1-Windows-x64-Setup
+OutputBaseFilename=DocumentAssistant-0.23.2-Windows-x64-Setup
 SetupIconFile=..\document_assistant\documentassistant.ico
 UninstallDisplayIcon={app}\DocumentAssistant.exe
 Compression=lzma2/fast

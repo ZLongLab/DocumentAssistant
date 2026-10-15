@@ -29,9 +29,9 @@ try {
     $bundle = Join-Path $outputPath 'dist\DocumentAssistant'
     & $compilerPath "/DBundleDir=$bundle" "/DOutputDirPath=$outputPath" (Join-Path $PSScriptRoot 'installer.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
-    $zipPath = Join-Path $outputPath 'DocumentAssistant-0.23.1-Windows-x64-Portable.zip'
+    $zipPath = Join-Path $outputPath 'DocumentAssistant-0.23.2-Windows-x64-Portable.zip'
     Compress-Archive -LiteralPath $bundle -DestinationPath $zipPath -Force
-    $artifacts = @((Join-Path $outputPath 'DocumentAssistant-0.23.1-Windows-x64-Setup.exe'), $zipPath)
+    $artifacts = @((Join-Path $outputPath 'DocumentAssistant-0.23.2-Windows-x64-Setup.exe'), $zipPath)
     $hashes = foreach ($artifact in $artifacts) { '{0}  {1}' -f (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLower(), (Split-Path $artifact -Leaf) }
     [IO.File]::WriteAllLines((Join-Path $outputPath 'SHA256SUMS.txt'), $hashes, [Text.Encoding]::ASCII)
 } finally {

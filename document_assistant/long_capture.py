@@ -6,7 +6,7 @@ from PySide6.QtCore import QAbstractNativeEventFilter, QObject, QRectF, Qt, QTim
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 from .capture_pixels import crop_selection
-from .long_stitch import VerticalStitcher
+from .long_stitch import VerticalStitcher, frames_settled
 from .video_ui import controls_position
 
 
@@ -115,15 +115,19 @@ class LongCaptureSession(QObject):
 
     def update_count(self):
         if self.stitcher:
-            self.controls.count.setText(f'{len(self.stitcher.parts)} 段 · {self.stitcher.width} × {self.stitcher.height} px')
+            count = len(self.stitcher.parts)
+            self.controls.count.setText(f'{count} 段 · {self.stitcher.width} × {self.stitcher.height} px' + (' · 尚未拼接' if count == 1 else ''))
 
     def poll(self):
         if self.done:
             return
         try:
             image = self.frame()
-            if self.pending is None or self.pending != image:
-                self.pending = image; return
+            if not frames_settled(self.pending, image):
+                self.pending = image
+                self.controls.status.setText('正在等待正文停稳；滚动后请稍停一下')
+                return
+            self.pending = image
             result = self.stitcher.append(image)
             messages = {'appended': '已拼接新内容，继续向下滚动', 'unchanged': '等待向下滚动；到页底后点完成',
                         'upward': '暂不拼接向上滚动的内容，请回到已采集位置再向下',
@@ -148,13 +152,15 @@ class LongCaptureSession(QObject):
             if not warning and self.pending is not None:
                 try:
                     frame = self.frame()
-                    if frame == self.pending:
+                    if frames_settled(self.pending, frame):
                         result = self.stitcher.append(frame)
                         if result.status in ('no_overlap', 'upward'):
                             warning = '最后一屏未能可靠拼接，已保留此前采集的内容'
                 except Exception as exc:
                     warning = str(exc)
             image = self.stitcher.image(); count = len(self.stitcher.parts)
+            if count == 1:
+                warning = '尚未拼接到新内容，当前只有一屏。请重新采集：框选正文，每次向下滚动约半屏后停一下。' + (' ' + warning if warning else '')
             self.teardown(); self.completed.emit(image, warning, count)
         except Exception as exc:
             self.teardown(); self.failed.emit(str(exc))
