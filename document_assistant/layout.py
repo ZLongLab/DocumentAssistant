@@ -35,7 +35,8 @@ def button(text, handler, icon=None, primary=False):
 
 
 def frame(name, direction=QVBoxLayout, margins=(0, 0, 0, 0), spacing=0):
-    item = QFrame()
+    from .theme_starry import GlassFrame
+    item = GlassFrame() if name in {'sidebar', 'sidebarFooter', 'list', 'workflowBand', 'actionbar'} else QFrame()
     item.setObjectName(name)
     layout = direction(item)
     layout.setContentsMargins(*margins)
@@ -47,11 +48,14 @@ class WorkbenchResponsive(QObject):
     def __init__(self,window):
         super().__init__(window)
         self.window=window;self.compact=None;self.restore_details=False
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.fit)
         window.installEventFilter(self)
-        QTimer.singleShot(0,self.fit)
+        self.timer.start(0)
 
     def eventFilter(self,watched,event):
-        if event.type()==QEvent.Type.Resize:QTimer.singleShot(0,self.fit)
+        if event.type()==QEvent.Type.Resize:self.timer.start(0)
         return False
 
     def fit(self):
@@ -59,9 +63,9 @@ class WorkbenchResponsive(QObject):
         self.window.import_hint.setVisible(not compact)
         wide = self.window.width() >= 1200
         if hasattr(self.window, 'topbar_art'):
-            self.window.topbar_art.setVisible(self.window.tabs.currentIndex() == 0 and wide)
+            self.window.topbar_art.setVisible(not getattr(self.window, '_compact_layout', False) and self.window.tabs.currentIndex() == 0 and wide)
         if hasattr(self.window, 'library_art'):
-            self.window.library_art.setVisible(self.window.tabs.currentIndex() == 1 and wide)
+            self.window.library_art.setVisible(not getattr(self.window, '_compact_layout', False) and self.window.tabs.currentIndex() == 1 and wide)
         if compact!=self.compact:
             if compact:
                 self.restore_details=not self.window.details_panel.isHidden()
@@ -74,12 +78,15 @@ class TableColumns(QObject):
     def __init__(self, table, kind):
         super().__init__(table)
         self.table, self.scheduled = table, False
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.fit)
         table.viewport().installEventFilter(self)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Resize and not self.scheduled:
             self.scheduled = True
-            QTimer.singleShot(0, self.fit)
+            self.timer.start(0)
         return False
 
     def fit(self):
@@ -113,7 +120,10 @@ class WorkflowSteps(QWidget):
     def set_stage(self, stage):
         self.stage = stage
         colors = get_colors()
+        from .theme import CURRENT_THEME
+        starry = CURRENT_THEME == 'starry'
         for index, badge in enumerate(self.badges):
+            badge.setFixedSize(32 if starry else 24, 32 if starry else 24)
             if index < stage:
                 bg = colors['step_done']
                 fg = '#ffffff'
@@ -123,7 +133,7 @@ class WorkflowSteps(QWidget):
             else:
                 bg = colors['step_inactive_bg']
                 fg = colors['step_inactive_text']
-            badge.setStyleSheet(f'background:{bg};color:{fg};border-radius:12px;font-weight:600;')
+            badge.setStyleSheet(f'background:{bg};color:{fg};border-radius:{16 if starry else 12}px;font-weight:600;')
 
     def refresh_stage(self):
         self.set_stage(self.stage)
@@ -134,10 +144,18 @@ def apply_theme(window, theme_name, *, persist=True):
     switch_theme(theme_name)
     from .theme import WORKBENCH_QSS
     colors = get_colors()
-    window.setStyleSheet(WORKBENCH_QSS)
+    if getattr(window, '_compact_layout', False):
+        from .theme_minimal import build_minimal_qss
+        from .theme_starry import STARRY_QSS
+        window.setStyleSheet(WORKBENCH_QSS + build_minimal_qss(colors) + (STARRY_QSS if theme_name == 'starry' else ''))
+    else:
+        window.setStyleSheet(WORKBENCH_QSS)
 
     if hasattr(window, 'theme_toggle'):
-        if theme_name == 'ocean':
+        if theme_name == 'starry':
+            window.theme_toggle.setText('主题：星空毛玻璃')
+            window.theme_toggle.setToolTip('蓝黑星空与背景磨砂玻璃；点击切换其他主题')
+        elif theme_name == 'ocean':
             window.theme_toggle.setText('主题：海蓝晶石')
             window.theme_toggle.setToolTip('当前为海蓝晶石。点击切换为暖玫瑰金。')
         else:
@@ -164,6 +182,14 @@ def apply_theme(window, theme_name, *, persist=True):
             nav.setIcon(line_icon('import' if i == 0 else 'library', '#ffffff' if i == idx else colors['nav_text']))
     if hasattr(window, 'screenshot_button'):
         window.screenshot_button.setIcon(line_icon('capture', '#ffffff'))
+    for attribute, symbol in (('source_button', 'folder'), ('library_button', 'folder'),
+                              ('open_folder_button', 'folder'), ('open_source_button', 'open')):
+        if hasattr(window, attribute):
+            getattr(window, attribute).setIcon(line_icon(symbol, colors['muted']))
+    if hasattr(window, 'library_edit') and window.library_edit.actions():
+        window.library_edit.actions()[0].setIcon(line_icon('folder', colors['muted']))
+    if hasattr(window, 'search_edit') and window.search_edit.actions():
+        window.search_edit.actions()[0].setIcon(line_icon('search', colors['muted']))
     if hasattr(window, 'library_title_icon'):
         window.library_title_icon.setPixmap(line_icon('library', colors['primary_bg']).pixmap(28, 28))
     if hasattr(window, 'more_button'):
@@ -173,18 +199,26 @@ def apply_theme(window, theme_name, *, persist=True):
     if hasattr(window, 'topbar_frame'):
         window.topbar_frame.style().unpolish(window.topbar_frame)
         window.topbar_frame.style().polish(window.topbar_frame)
+    if hasattr(window.centralWidget(), 'set_theme'):
+        window.centralWidget().set_theme(theme_name, colors['page_bg'])
+    if hasattr(window, 'window_chrome'):
+        window.window_chrome.set_theme(theme_name)
 
     if hasattr(window, 'settings') and isinstance(window.settings, dict):
         window.settings['theme'] = theme_name
+        if getattr(window, '_compact_layout', False):
+            window.settings['design_revision'] = 'starry-v1'
         if persist and hasattr(window, 'save_settings'):
             window.save_settings()
 
 
 def toggle_theme(window):
     from .theme import CURRENT_THEME
-    next_theme = 'rose' if CURRENT_THEME == 'ocean' else 'ocean'
+    themes = ('starry', 'ocean', 'rose')
+    next_theme = themes[(themes.index(CURRENT_THEME) + 1) % len(themes)]
     apply_theme(window, next_theme)
-    window.statusBar().showMessage(f"已切换至{'暖玫瑰金' if next_theme == 'rose' else '海蓝晶石'}主题")
+    theme_title = {'starry': '星空毛玻璃', 'ocean': '海蓝晶石', 'rose': '暖玫瑰金'}[next_theme]
+    window.statusBar().showMessage(f'已切换至{theme_title}主题')
 
 
 class SelectAllCheckBox(QCheckBox):
@@ -192,22 +226,31 @@ class SelectAllCheckBox(QCheckBox):
         self.setCheckState(Qt.CheckState.Unchecked if self.checkState()==Qt.CheckState.Checked else Qt.CheckState.Checked)
 
 
-def build_window(window):
+def build_window(window, *, compact=False):
+    # Keep all action/widget contracts in one builder; variants change presentation only.
+    window._compact_layout = compact
+    if compact:
+        from .cards_minimal import CardGrid, MinimalDetailPane as DetailPane
+    else:
+        from .cards import CardGrid, DetailPane
     from .gui import table
     # Establish the saved palette before constructing theme-aware child widgets.
     init_theme = normalize_theme(window.settings.get('theme', 'ocean'))
+    if compact and window.settings.get('design_revision') != 'starry-v1':
+        init_theme = 'starry'
     switch_theme(init_theme)
     window.setMinimumSize(960, 580)
     available = QApplication.primaryScreen().availableGeometry()
     window.resize(min(1540, max(960, available.width() - 48)),
                   min(960, max(580, available.height() - 64)))
-    root = QWidget()
+    from .theme_starry import StarfieldBackground
+    root = StarfieldBackground()
     window.setCentralWidget(root)
     root_layout = QHBoxLayout(root)
     root_layout.setContentsMargins(0, 0, 0, 0)
     root_layout.setSpacing(0)
     sidebar, side = frame('sidebar', margins=(14, 24, 14, 18), spacing=18)
-    sidebar.setFixedWidth(220)
+    sidebar.setFixedWidth(200 if compact else 220)
     brand = QHBoxLayout()
     mark = label('', 'brandMark')
     mark.setFixedSize(36, 42)
@@ -220,7 +263,7 @@ def build_window(window):
     brand_text.addWidget(label('本地文档管理', 'sidebarNote'))
     brand.addLayout(brand_text)
     side.addLayout(brand)
-    side.addSpacing(12)
+    side.addSpacing(4 if compact else 12)
     window.nav_buttons = []
     group = QButtonGroup(window)
     for index, (text, symbol) in enumerate((('添加 / 整理', 'import'), ('文档库', 'library'))):
@@ -228,7 +271,7 @@ def build_window(window):
         nav.setObjectName('nav')
         nav.setIcon(line_icon(symbol,'#e2eee7'))
         nav.setCheckable(True)
-        nav.setMinimumHeight(54)
+        nav.setMinimumHeight(44 if compact else 54)
         group.addButton(nav, index)
         side.addWidget(nav)
         window.nav_buttons.append(nav)
@@ -240,6 +283,9 @@ def build_window(window):
     side.addWidget(window.screenshot_button)
     window.shelf = ShelfArtwork()
     side.addWidget(window.shelf, 1)
+    if compact:
+        window.shelf.hide()
+        side.addStretch(1)
     footer,footer_layout=frame('sidebarFooter',margins=(8,10,8,8),spacing=7)
     footer_layout.addWidget(label('当前文档库','footerCaption'))
     location=QHBoxLayout();location.setContentsMargins(8,0,8,4);location.setSpacing(8)
@@ -261,6 +307,7 @@ def build_window(window):
     menu = window.more_menu
     menu_theme = ActionMenu('视觉主题', window.more_menu)
     window.more_menu.addMenu(menu_theme).setIcon(line_icon('more', '#2563eb'))
+    menu_theme.addAction('星空毛玻璃', lambda: apply_theme(window, 'starry'))
     menu_theme.addAction('海蓝晶石', lambda: apply_theme(window, 'ocean'))
     menu_theme.addAction('暖玫瑰金', lambda: apply_theme(window, 'rose'))
     menu.addSeparator()
@@ -302,7 +349,7 @@ def build_window(window):
     main_layout = QVBoxLayout(main)
     main_layout.setContentsMargins(0, 0, 0, 0)
     main_layout.setSpacing(0)
-    topbar, heading = frame('topbar', QHBoxLayout, (26, 22, 22, 18), 16)
+    topbar, heading = frame('topbar', QHBoxLayout, (22, 14, 22, 12) if compact else (26, 22, 22, 18), 16)
     window.topbar_frame=topbar
     titles = QVBoxLayout()
     titles.setSpacing(5)
@@ -317,6 +364,9 @@ def build_window(window):
     titles.addWidget(window.page_subtitle)
     window.steps_label = WorkflowSteps()
     titles.addWidget(window.steps_label)
+    if compact:
+        window.library_title_icon.hide()
+        window.steps_label.hide()
     heading.addLayout(titles, 1)
     window.topbar_art = WorkbenchFlourish()
     heading.addWidget(window.topbar_art)
@@ -340,6 +390,13 @@ def build_window(window):
     location.addLayout(location_row)
     heading.addLayout(location)
     main_layout.addWidget(topbar)
+    if compact:
+        titles.removeWidget(window.steps_label)
+        band, band_layout = frame('workflowBand', QHBoxLayout, (20, 14, 20, 14), 10)
+        band_layout.addWidget(window.steps_label)
+        window.steps_label.show()
+        window.workflow_band = band
+        main_layout.addWidget(band)
     window.tabs = QStackedWidget()
     review = QWidget()
     review_layout = QVBoxLayout(review)
@@ -410,6 +467,8 @@ def build_window(window):
     left.addWidget(window.cards_view.page_controls)
     body.addLayout(left, 1)
     window.details_panel = DetailPane(window)
+    if compact:
+        window.details_panel.hide()
     body.addWidget(window.details_panel)
     window.workbench_responsive=WorkbenchResponsive(window)
     review_layout.addLayout(body, 1)
@@ -497,17 +556,21 @@ def build_window(window):
     search_heading.addWidget(window.labels_button)
     window.reading_button=button('阅读 / 备注',window.edit_reading)
     search_heading.addWidget(window.reading_button)
-    window.cleanup_button = button('清理失效记录', window.cleanup_missing_records)
+    window.library_maintenance_menu = ActionMenu('文档库维护', window)
+    window.cleanup_button = window.library_maintenance_menu.addAction('清理失效记录', window.cleanup_missing_records)
     window.cleanup_button.setToolTip('检查整个当前文档库，确认后移除归档副本已不存在的记录；操作日志保留')
-    search_heading.addWidget(window.cleanup_button)
+    window.library_maintenance_button = button('维护', lambda: None)
+    window.library_maintenance_button.setMenu(window.library_maintenance_menu)
+    search_heading.addWidget(window.library_maintenance_button)
     search_layout.addLayout(search_heading)
-    search_list, listing = frame('list')
+    search_list, listing = frame('list', margins=(8, 8, 8, 8))
     window.search_table = table(['文件名', '分类', '归档日期'])
+    window.search_table.setObjectName('libraryTable')
     window.search_table.setSelectionMode(window.search_table.SelectionMode.ExtendedSelection)
     window.search_table.setProperty('emptyText', '尚未选择文档库\n点击右上角“选择文档库”，即可查看已有归档记录。')
     window.search_table.horizontalHeader().setStretchLastSection(False)
     window.search_table.setShowGrid(False)
-    window.search_table.verticalHeader().setDefaultSectionSize(64)
+    window.search_table.verticalHeader().setDefaultSectionSize(60)
     window.search_table.setItemDelegateForColumn(0, TwoLineDelegate('file', window.search_table))
     from .presentation import CategoryDelegate
     window.search_table.setItemDelegateForColumn(1,CategoryDelegate(window.search_table))
@@ -524,13 +587,18 @@ def build_window(window):
     pages.addWidget(window.previous_page)
     pages.addWidget(window.page_label)
     pages.addWidget(window.next_page)
+    window.previous_page.hide()
+    window.next_page.hide()
+    window.page_label.setText('共 0 项')
     search_layout.addLayout(pages)
     search_actionbar, search_bottom = frame('actionbar', QHBoxLayout, (0, 14, 0, 14), 12)
     library_summary = QVBoxLayout()
-    window.library_selection = label('选择一个文件')
-    window.library_selection.setWordWrap(True)
+    from .presentation import ElidingLabel
+    window.library_selection = ElidingLabel('选择一个文件')
     library_summary.addWidget(window.library_selection)
-    library_summary.addWidget(label('直接打开已归档文件，无需手动查找磁盘文件夹。', 'muted'))
+    window.library_selection_hint = label('选中文件后可预览或打开，支持 Ctrl / Shift 多选。', 'muted')
+    window.library_selection_hint.setWordWrap(True)
+    library_summary.addWidget(window.library_selection_hint)
     search_bottom.addLayout(library_summary, 1)
     window.open_folder_button = button('所在文件夹', window.open_archive_folder)
     window.open_archive_button = button('打开文件', window.open_archive, 'open', True)
@@ -544,12 +612,16 @@ def build_window(window):
     root_layout.addWidget(main, 1)
 
     def page_changed(index):
+        window.centralWidget().set_page(index)
+        window.screenshot_button.setProperty('secondary', index == 1)
+        window.screenshot_button.style().unpolish(window.screenshot_button)
+        window.screenshot_button.style().polish(window.screenshot_button)
         wide = window.width() >= 1200
-        window.library_title_icon.setVisible(index == 1)
+        window.library_title_icon.setVisible(index == 1 and not compact)
         if hasattr(window, 'topbar_art'):
-            window.topbar_art.setVisible(index == 0 and wide)
+            window.topbar_art.setVisible(index == 0 and wide and not compact)
         if hasattr(window, 'library_art'):
-            window.library_art.setVisible(index == 1 and wide)
+            window.library_art.setVisible(index == 1 and wide and not compact)
         window.topbar_frame.setProperty('library', index == 1)
         window.topbar_frame.style().unpolish(window.topbar_frame)
         window.topbar_frame.style().polish(window.topbar_frame)
@@ -558,6 +630,8 @@ def build_window(window):
         window.page_subtitle.setText('检查分类建议，确认后复制到文档库' if index == 0
                                      else '搜索正文、课程与项目，直接打开已归档文件')
         window.steps_label.setVisible(index == 0)
+        if compact:
+            window.workflow_band.setVisible(index == 0)
         from .theme import get_colors
         c = get_colors()
         for i, nav in enumerate(window.nav_buttons):

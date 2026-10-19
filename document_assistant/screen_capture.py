@@ -305,6 +305,7 @@ class CaptureController:
         self.exiting=False;self.exit_pending=False;self.stopped=False;self.last_saved=None
         self.from_hotkey=False;self.previous_foreground=None
         self.recording=None;self.record_controls=None;self.video_stop=None;self.last_video=None
+        self.video_audio_mode='silent'
         self.long_capture=None;self.long_stop=None
         self.video_countdown=QTimer(window);self.video_countdown.setInterval(1000)
         self.video_countdown.timeout.connect(self.countdown_video)
@@ -432,12 +433,14 @@ class CaptureController:
             if not frames or any(image.isNull() for _,image in frames):raise OSError('无法读取屏幕画面')
             for screen,image in frames:
                 overlay=SelectionOverlay(screen,image,self.tool_preferences)
+                overlay.set_video_audio_mode(self.video_audio_mode)
                 overlay.preferences_changed.connect(self.remember_tools)
                 overlay.stop_key=self.hotkey.text if self.hotkey.ident is not None else '托盘菜单'
                 overlay.refresh_toolbar()
                 overlay.video_selected.connect(lambda rect,target=screen:self.begin_video(target,rect))
                 overlay.long_selected.connect(lambda rect,target=screen:self.begin_long(target,rect))
                 overlay.mode_changed.connect(self.change_capture_mode)
+                overlay.video_audio_changed.connect(self.change_video_audio_mode)
                 directory=Path(self.settings['directory']).resolve()
                 desktop=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)).resolve()
                 overlay.save_button.setText('保存到桌面' if directory==desktop else '保存图片')
@@ -493,6 +496,12 @@ class CaptureController:
     def change_capture_mode(self,mode):
         for overlay in self.overlays:overlay.set_mode(mode)
 
+    def change_video_audio_mode(self,mode):
+        if self.recording:return
+        from .video_audio import normalize_audio_mode
+        self.video_audio_mode=normalize_audio_mode(mode)
+        for overlay in self.overlays:overlay.set_video_audio_mode(self.video_audio_mode)
+
     def is_desktop_destination(self):
         desktop=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
         return bool(desktop) and Path(self.settings['directory']).resolve()==Path(desktop).resolve()
@@ -541,13 +550,13 @@ class CaptureController:
         try:
             from .video_recording import RegionRecorder
             from .video_ui import RecordingControls,controls_position
-            self.recording=RegionRecorder(screen,rect,self.window.home,self.window)
+            self.recording=RegionRecorder(screen,rect,self.window.home,self.window,audio_mode=self.video_audio_mode)
             self.recording.started.connect(self.recording_started)
             self.recording.progress.connect(self.recording_progress)
             self.recording.completed.connect(self.video_completed)
             self.recording.failed.connect(self.video_failed)
             key=self.hotkey.text if self.hotkey.ident is not None else '托盘菜单'
-            self.record_controls=RecordingControls(key)
+            self.record_controls=RecordingControls(key,self.video_audio_mode)
             self.record_controls.stop_requested.connect(self.stop_recording)
             self.record_controls.cancel_requested.connect(self.cancel)
             region=rect.toAlignedRect().translated(screen.geometry().topLeft())
@@ -582,6 +591,8 @@ class CaptureController:
 
     def recording_started(self):
         if self.record_controls:self.record_controls.started()
+        if self.record_controls and self.recording.audio_device:
+            self.record_controls.hint.setToolTip('正在录制电脑声音：'+self.recording.audio_device)
         if self.tray:self.tray.setToolTip('正在录制视频 · '+self.hotkey.text+' 停止')
 
     def recording_progress(self,millis):
@@ -600,7 +611,7 @@ class CaptureController:
         from .video_ui import VideoPreview
         if self.record_controls:self.record_controls.hide()
         if self.video_stop:self.video_stop.setEnabled(False)
-        try:self.editor=VideoPreview(path,self,self.recording.interruption)
+        try:self.editor=VideoPreview(path,self,self.recording.interruption,audio_mode=self.recording.audio_mode)
         except Exception as exc:
             self.recording.keep_file=True;self.video_failed('无法打开预览：'+str(exc));return
         self.editor.finished.connect(self.finished)

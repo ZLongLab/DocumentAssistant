@@ -273,6 +273,7 @@ class FileCard(QFrame):
 
 
 class CardGrid(QScrollArea):
+    card_class = FileCard
     def __init__(self, window):
         super().__init__()
         self.window = window
@@ -304,6 +305,9 @@ class CardGrid(QScrollArea):
         self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setWidget(self.content)
         self.viewport().installEventFilter(self)
+        self.reflow_timer = QTimer(self)
+        self.reflow_timer.setSingleShot(True)
+        self.reflow_timer.timeout.connect(self.reflow)
 
     def rebuild(self):
         while self.grid.count():
@@ -314,7 +318,7 @@ class CardGrid(QScrollArea):
         count = len(self.window.items)
         self.page = min(self.page, max(0,(count-1)//self.page_size))
         first, last = self.page*self.page_size, min(count,(self.page+1)*self.page_size)
-        self.cards = [] if self.window.review_mode=='list' else [FileCard(self.window, row, self.content) for row in range(first,last)]
+        self.cards = [] if self.window.review_mode=='list' else [self.card_class(self.window, row, self.content) for row in range(first,last)]
         self.page_label.setText(f'显示 {first+1}–{last} / {count} 个文件 · 勾选与归档作用于全部列表')
         self.previous.setEnabled(self.page>0)
         self.next.setEnabled(last<count)
@@ -332,7 +336,7 @@ class CardGrid(QScrollArea):
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Resize:
-            QTimer.singleShot(0, self.reflow)
+            self.reflow_timer.start(0)
         return False
 
     def reflow(self):

@@ -8,7 +8,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 APP_ID = 'DocumentAssistant.Workbench'
-ICON_PATH = Path(__file__).with_name('documentassistant.ico')
+ICON_PATH = Path(__file__).with_name('documentassistant-glass.ico')
+if not ICON_PATH.is_file():
+    ICON_PATH = Path(__file__).with_name('documentassistant.ico')
 
 
 def configure_process():

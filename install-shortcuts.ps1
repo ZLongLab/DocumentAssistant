@@ -17,7 +17,8 @@ $description = 'DocumentAssistant | managed local launcher'
 $runtimeDirectory = Join-Path (Split-Path $projectDirectory -Parent) 'DocumentAssistant-local'
 if ($env:DOCUMENTASSISTANT_HOME) { $runtimeDirectory = $env:DOCUMENTASSISTANT_HOME }
 $shell = New-Object -ComObject WScript.Shell
-$icon = Join-Path $projectDirectory 'document_assistant\documentassistant.ico'
+$icon = Join-Path $projectDirectory 'document_assistant\documentassistant-glass.ico'
+if (-not (Test-Path -LiteralPath $icon)) { $icon = Join-Path $projectDirectory 'document_assistant\documentassistant.ico' }
 if (-not (Test-Path -LiteralPath $icon)) { throw '专属图标缺失，请重新下载完整项目。' }
 $plans = @()
 if ($DestinationFolder) {

@@ -171,6 +171,8 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
         self.search_timer.timeout.connect(self.refresh_search)
         self.setAcceptDrops(True)
         self.build_ui()
+        from .window_chrome import WindowChrome
+        self.window_chrome=WindowChrome(self,self.settings.get('theme','ocean'))
         self.populate_scan({str(item.path):item.selected for item in self.items})
         self.restore_paths()
         self.update_controls()
@@ -180,8 +182,14 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
             self.details_button.setEnabled(True)
 
     def build_ui(self):
-        from .layout import build_window
-        build_window(self)
+        from .layout_minimal import build_minimal_window, selected_layout
+        self.layout_variant = selected_layout(self.home)
+        if self.layout_variant == 'classic':
+            from .layout import build_window
+            build_window(self)
+        else:
+            build_minimal_window(self)
+            self.setWindowTitle(f"DocumentAssistant · 星空工作台 · {__version__}")
 
     def restore_paths(self):
         source = self.settings.get("source", "")
@@ -202,6 +210,7 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
             "view": self.review_mode,
             "review_order": self.review_order,
             "theme": self.settings.get("theme", "ocean"),
+            "design_revision": self.settings.get("design_revision", "starry-v1"),
         }
         try:
             temporary = self.settings_path.with_suffix(".tmp")
@@ -757,16 +766,44 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
         self.search_timer.start()
 
     def update_archive_selection(self):
-        row = self.search_table.currentRow()
-        valid = 0 <= row < len(self.archive_rows)
-        available = valid and self.archive_rows[row].get('_file_state') == 'available'
-        self.open_archive_button.setEnabled(bool(available) and self.worker is None)
-        self.preview_archive_button.setEnabled(bool(available) and self.worker is None)
-        self.open_folder_button.setEnabled(valid and self.worker is None)
-        self.cleanup_button.setEnabled(self.catalog is not None and self.worker is None)
-        self.open_archive_button.setToolTip("打开选中的归档副本" if available else "请选择存在的归档文件")
-        self.library_selection.setText(f"已选：{self.archive_rows[row]['filename']}" if valid else "选择一个文件")
-        self.library_selection.setToolTip(self.archive_rows[row]["archive_path"] if valid else "")
+        selected = [index.row() for index in self.search_table.selectionModel().selectedRows()
+                    if 0 <= index.row() < len(self.archive_rows)]
+        single = len(selected) == 1
+        record = self.archive_rows[selected[0]] if single else None
+        available = single and record.get('_file_state') == 'available'
+        idle = self.worker is None
+        self.open_archive_button.setEnabled(bool(available) and idle)
+        self.preview_archive_button.setEnabled(bool(available) and idle)
+        self.open_folder_button.setEnabled(single and idle)
+        self.labels_button.setEnabled(bool(selected) and idle)
+        self.reading_button.setEnabled(bool(selected) and idle)
+        self.cleanup_button.setEnabled(self.catalog is not None and idle)
+        self.library_maintenance_button.setEnabled(self.catalog is not None and idle)
+        multiple = len(selected) > 1
+        if self.labels_button.property('prominent') != multiple:
+            self.labels_button.setProperty('prominent', multiple)
+            self.labels_button.style().unpolish(self.labels_button)
+            self.labels_button.style().polish(self.labels_button)
+        self.labels_button.setText('批量分类' if multiple else '分类 / 标签')
+        self.labels_button.setToolTip('批量修改选中文件的分类和标签' if multiple else '修改选中文件的分类和标签')
+        self.reading_button.setText('批量备注' if multiple else '阅读 / 备注')
+        self.reading_button.setToolTip('批量修改选中文件的阅读状态和备注' if multiple else '修改阅读状态和备注')
+        self.open_archive_button.setToolTip('多选时请使用批量操作；打开文件需要单选' if multiple else
+                                          '打开选中的归档副本' if available else '请选择存在的归档文件')
+        if single:
+            title = record.get('display_title') or record['filename']
+            self.library_selection.setText('已选：' + title)
+            self.library_selection.setToolTip(f"标题：{title}\n原文件名：{record['filename']}\n归档路径：{record['archive_path']}")
+            self.library_selection_hint.setText('双击或点击“打开文件”，直接打开归档副本。' if available else
+                                                '归档副本不可用；可在“维护”中检查失效记录。')
+        elif multiple:
+            self.library_selection.setText(f'已选择 {len(selected)} 项')
+            self.library_selection.setToolTip('\n'.join(self.archive_rows[row]['filename'] for row in selected))
+            self.library_selection_hint.setText('可批量修改分类、标签、阅读状态或备注。')
+        else:
+            self.library_selection.setText('选择一个文件')
+            self.library_selection.setToolTip('')
+            self.library_selection_hint.setText('选中文件后可预览或打开，支持 Ctrl / Shift 多选。')
 
     def cleanup_missing_records(self):
         if self.worker is not None or self.catalog is None:
@@ -832,7 +869,7 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
                     cell.setForeground(QColor(WARNING))
                 if column == 0:
                     if result["display_title"]:
-                        cell.setText(result["display_title"]+("（文件不存在）" if state=="missing" else ""))
+                        cell.setText(result["display_title"]+('（文件不存在）' if state=='missing' else '（状态无法确认）' if state=='unknown' else ''))
                     cell.setData(GLYPH, Path(result["filename"]).suffix[1:].upper())
                     labels = ' · '.join(value for value in (result['course'],result['project'],result['tags']) if value)
                     snippet = result['body_snippet']
@@ -846,7 +883,9 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
                 self.search_table.setItem(row, column, cell)
         prefix = "找到" if filtered else "已归档"
         self.search_count.setText(f"{prefix} {self.search_total} 个文件 · {self.search_sort.currentText()}")
-        self.page_label.setText(f'第 {self.search_page+1} / {pages} 页 · 每页 {self.page_size} 个')
+        self.page_label.setText(f'第 {self.search_page+1} / {pages} 页 · 共 {self.search_total} 项' if pages > 1 else f'共 {self.search_total} 项')
+        self.previous_page.setVisible(pages > 1)
+        self.next_page.setVisible(pages > 1)
         self.previous_page.setEnabled(self.worker is None and self.search_page>0)
         self.next_page.setEnabled(self.worker is None and self.search_page+1<pages)
         if self.archive_rows:

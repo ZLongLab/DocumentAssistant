@@ -29,10 +29,12 @@ def paint_matches(painter, rect, text, terms):
     from PySide6.QtCore import Qt, QRectF
     from PySide6.QtGui import QColor
     metrics = painter.fontMetrics()
+    from .theme import get_colors
+    highlight = QColor(get_colors().get('match_bg', '#ffdf7d'))
     height = metrics.height()
     top = rect.top()+(rect.height()-height)/2
     for start,end in match_spans(text,terms):
         x = rect.left()+metrics.horizontalAdvance(text[:start])
         width = metrics.horizontalAdvance(text[start:end])
-        painter.fillRect(QRectF(x,top,width,height),QColor('#ffdf7d'))
+        painter.fillRect(QRectF(x,top,width,height),highlight)
     painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)

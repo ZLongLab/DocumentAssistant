@@ -2,7 +2,7 @@
 from PySide6.QtCore import QByteArray, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QTableWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget
 
 TEXT, MUTED, ACCENT, WARNING, SUCCESS = "#202733", "#596574", "#285fbe", "#8a5618", "#32674b"
 SUBTEXT = Qt.ItemDataRole.UserRole + 1
@@ -35,6 +35,46 @@ PATHS = {
 }
 
 
+class ElidingLabel(QLabel):
+    """Single-line title that cannot stretch the footer with a long document name."""
+    def __init__(self, text='', parent=None):
+        super().__init__(parent)
+        self._full_text = ''
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.setMinimumWidth(80)
+        self.setText(text)
+
+    def setText(self, text):
+        self._full_text = str(text)
+        self.setToolTip(self._full_text)
+        self._render_text()
+
+    def _render_text(self):
+        super().setText(self.fontMetrics().elidedText(self._full_text, Qt.TextElideMode.ElideRight, max(0, self.contentsRect().width())))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._render_text()
+
+
+def table_text_colors(option, index):
+    """Custom delegates must read theme tokens; QSS cannot recolor drawn text."""
+    from .theme import CURRENT_THEME, get_colors
+    colors = get_colors()
+    selected = bool(option.state & QStyle.StateFlag.State_Selected)
+    title = colors.get('table_selected_text', colors['text']) if selected else colors['text']
+    subtitle = colors.get('table_selected_muted', colors['muted']) if selected else colors['muted']
+    foreground = index.data(Qt.ItemDataRole.ForegroundRole)
+    if foreground:
+        semantic = foreground.color()
+        if CURRENT_THEME == 'starry' and semantic.name() == WARNING:
+            title = colors['warning_text']
+        elif semantic.name() != TEXT:
+            title = semantic.name()
+    return QColor(title), QColor(subtitle)
+
+
 class HintTable(QTableWidget):
     """Honest empty state inside the native table's own viewport."""
     def paintEvent(self, event):
@@ -42,7 +82,8 @@ class HintTable(QTableWidget):
         if self.rowCount() or not self.property("emptyText"):
             return
         painter = QPainter(self.viewport())
-        painter.setPen(QColor(MUTED))
+        from .theme import get_colors
+        painter.setPen(QColor(get_colors()['muted']))
         painter.drawText(self.viewport().rect().adjusted(24, 36, -24, -24),
                          Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
                          self.property("emptyText"))
@@ -78,16 +119,23 @@ class TwoLineDelegate(QStyledItemDelegate):
                                             option, painter, option.widget)
         rect = option.rect.adjusted(12, 7, -12, -7)
         title, subtitle = index.data(Qt.ItemDataRole.DisplayRole) or "", index.data(SUBTEXT) or ""
-        foreground = index.data(Qt.ItemDataRole.ForegroundRole)
-        color = foreground.color() if foreground else QColor(TEXT)
+        from .theme import CURRENT_THEME, get_colors
+        colors = get_colors()
+        color, subtitle_color = table_text_colors(option, index)
+        if self.kind == 'file' and option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(QRect(option.rect.left(), option.rect.top()+8, 3, option.rect.height()-16), QColor(colors['accent']))
         font = QFont(option.font)
-        font.setPixelSize(13)
+        font.setPixelSize(14 if self.kind == 'file' else 13)
+        font.setWeight(QFont.Weight.DemiBold if self.kind == 'file' else QFont.Weight.Normal)
         painter.setFont(font)
         painter.setPen(color)
         if self.kind == "file":
             badge = QRect(rect.left(), rect.center().y() - 16, 28, 32)
             suffix=str(index.data(GLYPH) or 'DOC')
             bg,ink={'PDF':('#fff0e8','#b45f36'),'DOCX':('#e9effb','#396caf'),'DOC':('#e9effb','#396caf'),'TXT':('#eaf2ed','#448063')}.get(suffix,('#eef0ed','#617267'))
+            if CURRENT_THEME == 'starry':
+                bg, ink = {'PDF':('#352332','#ffd1b5'),'DOCX':('#22304b','#b7d3ff'),
+                           'DOC':('#22304b','#b7d3ff'),'TXT':('#1c3437','#b2dfd8')}.get(suffix,('#293945','#d0e0eb'))
             painter.setPen(Qt.PenStyle.NoPen);painter.setBrush(QColor(bg))
             painter.drawRoundedRect(badge,7,7)
             badge_font = QFont(font)
@@ -100,7 +148,7 @@ class TwoLineDelegate(QStyledItemDelegate):
             painter.setFont(font)
             painter.setPen(color)
         elif self.kind == "status":
-            icon = self.icons["info" if color.name() == WARNING else "check"]
+            icon = self.icons["info" if color.name() in (WARNING, colors.get('warning_text')) else "check"]
             icon.paint(painter, QRect(rect.left(), rect.top() + 4, 14, 14))
             rect.setLeft(rect.left() + 20)
         if self.kind == "reason":
@@ -117,9 +165,10 @@ class TwoLineDelegate(QStyledItemDelegate):
             paint_matches(painter, QRect(rect.left(), rect.top(), rect.width(), 23), text,
                           index.data(MATCH_TERMS) or [])
             subtitle_y = rect.top() + 25
-        font.setPixelSize(11)
+        font.setPixelSize(12 if self.kind == 'file' else 11)
+        font.setWeight(QFont.Weight.Normal)
         painter.setFont(font)
-        painter.setPen(QColor(MUTED))
+        painter.setPen(subtitle_color)
         text = painter.fontMetrics().elidedText(subtitle, Qt.TextElideMode.ElideRight, max(0, rect.width()))
         from .search_text import paint_matches
         paint_matches(painter, QRect(rect.left(), subtitle_y, rect.width(), 16), text,
@@ -127,7 +176,7 @@ class TwoLineDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option, index):
-        return QSize(140, 68)
+        return QSize(140, 60 if self.kind == 'file' else 68)
 
 
 class CategoryDelegate(QStyledItemDelegate):
@@ -137,6 +186,14 @@ class CategoryDelegate(QStyledItemDelegate):
         from .cards import COLORS
         text=str(index.data(Qt.ItemDataRole.DisplayRole) or '')
         background,ink,_=COLORS.get(text,COLORS['其他'])
+        from .theme import CURRENT_THEME
+        if CURRENT_THEME == 'starry':
+            background, ink = {
+                '实验报告':('#203149','#bdd8ff'), '研究文献':('#392532','#ffd1b5'),
+                '课程资料':('#233c50','#c1dff3'), '项目资料':('#1c3430','#b2dfcf'),
+                '个人资料':('#3e253d','#f2c4df'), '其他':('#29313d','#d1d8e1'),
+                '待整理':('#3c301e','#f3d79d'),
+            }.get(text, ('#233c50','#c1dff3'))
         font=QFont(option.font);font.setPixelSize(12);painter.setFont(font)
         width=min(option.rect.width()-20,painter.fontMetrics().horizontalAdvance(text)+20)
         rect=QRect(option.rect.x()+10,option.rect.center().y()-13,max(1,width),26)

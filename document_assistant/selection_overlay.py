@@ -2,30 +2,15 @@
 import copy,math
 from PySide6.QtCore import QPointF,QRectF,Qt,Signal,QSize
 from PySide6.QtGui import QColor,QPainter,QPen,QFont,QShortcut,QKeySequence
-from PySide6.QtWidgets import QWidget,QPushButton,QHBoxLayout,QFrame,QButtonGroup,QLabel,QGraphicsDropShadowEffect,QSpinBox
-from .capture_pixels import crop_selection
+from PySide6.QtWidgets import QWidget,QPushButton,QHBoxLayout,QFrame,QButtonGroup,QLabel,QSpinBox,QComboBox
+from .capture_pixels import crop_selection, pixel_scale, selection_pixels
 from .presentation import line_icon
 from .inline_capture import InlineAnnotationCanvas
 from .capture_tools import COLORS,normalize_tools
+from .video_audio import normalize_audio_mode, audio_label
 
-PANEL_STYLE='''
-QFrame#selectionPanel { background:#20292b; border:1px solid #425357; border-radius:14px; }
-QPushButton { font-family:"Microsoft YaHei UI"; font-size:12px; color:#edf5f0; background:transparent; border:1px solid transparent; border-radius:8px; padding:7px 10px; }
-QPushButton:hover { background:#354448; }
-QPushButton:focus { border-color:#4ba681; }
-QPushButton:checked, QPushButton#confirmSelection { color:white; background:#148968; font-weight:600; }
-QPushButton:checked:hover, QPushButton#confirmSelection:hover { background:#0f825f; }
-QPushButton:disabled { color:#66787b; background:transparent; }
-QPushButton#colorChoice { border:2px solid transparent; border-radius:10px; padding:0; }
-QPushButton#colorChoice:checked { border-color:#ffffff; }
-QLabel, QLabel#selectionHint { font-family:"Microsoft YaHei UI"; font-size:12px; color:#c0d0c7; background:transparent; border:0; }
-QSpinBox { color:#edf5f0; background:#354448; border:1px solid #4a5b60; border-radius:6px; padding:3px; }
-QFrame#selectionDivider { background:#425357; border:0; }
-'''
-
-def panel_shadow(panel):
-    effect=QGraphicsDropShadowEffect(panel);effect.setBlurRadius(22);effect.setOffset(0,5)
-    effect.setColor(QColor(8,30,20,45));panel.setGraphicsEffect(effect)
+from .capture_material import (CaptureGlassPanel, PANEL_STYLE, SELECTION_COLOR,
+    CORNER_COLOR, HANDLE_COLOR, ICON_COLOR, MUTED_ICON_COLOR, paint_panel_shadows)
 
 class SelectionOverlay(QWidget):
     selected=Signal(object)
@@ -33,6 +18,7 @@ class SelectionOverlay(QWidget):
     video_selected=Signal(object)
     long_selected=Signal(object)
     mode_changed=Signal(str)
+    video_audio_changed=Signal(str)
     cancelled=Signal()
     preferences_changed=Signal(object)
     def __init__(self,screen,image,preferences=None):
@@ -41,10 +27,11 @@ class SelectionOverlay(QWidget):
         self.setCursor(Qt.CursorShape.CrossCursor);self.setMouseTracking(True)
         self.setWindowTitle('DocumentAssistant · 框选截图');self.setGeometry(screen.geometry())
         self.mode='photo';self.stop_key='Alt+S';self.selection_locked=False
+        self.video_audio_mode='silent'
         self.canvas=None;self.crop_origin=None;self.tool='view';self.error_text=''
         self.saved_path=self.saved_image=None
         self.tool_preferences=normalize_tools(preferences)
-        self.modes=QFrame(self);self.modes.setObjectName('selectionPanel');self.modes.setStyleSheet(PANEL_STYLE);panel_shadow(self.modes)
+        self.modes=CaptureGlassPanel(self)
         modes=QHBoxLayout(self.modes);modes.setContentsMargins(7,7,14,7);modes.setSpacing(5)
         self.mode_group=QButtonGroup(self);self.mode_buttons={}
         for key,label in [('photo','拍照'),('long','长截图'),('video','视频')]:
@@ -52,9 +39,16 @@ class SelectionOverlay(QWidget):
             self.mode_group.addButton(button);modes.addWidget(button)
             button.clicked.connect(lambda checked=False,value=key:self.set_mode(value,True));self.mode_buttons[key]=button
         self.mode_buttons['photo'].setChecked(True)
+        self.video_audio_combo=QComboBox();self.video_audio_combo.setObjectName('captureAudio')
+        self.video_audio_combo.addItem('无声','silent');self.video_audio_combo.addItem('有声（电脑声音）','system')
+        self.video_audio_combo.setAccessibleName('录屏声音')
+        self.video_audio_combo.setToolTip('有声：录入默认播放设备的电脑声音，不录麦克风；无声：只录画面')
+        self.video_audio_combo.setFixedHeight(34);self.video_audio_combo.setMinimumWidth(130)
+        self.video_audio_combo.currentIndexChanged.connect(lambda:self.set_video_audio_mode(self.video_audio_combo.currentData(),True))
+        modes.addWidget(self.video_audio_combo);self.video_audio_combo.hide()
         divider=QFrame();divider.setObjectName('selectionDivider');divider.setFixedSize(1,22);modes.addSpacing(7);modes.addWidget(divider);modes.addSpacing(7)
         self.hint_label=QLabel();self.hint_label.setObjectName('selectionHint');modes.addWidget(self.hint_label)
-        self.actions=QFrame(self);self.actions.setObjectName('selectionPanel');self.actions.setStyleSheet(PANEL_STYLE);panel_shadow(self.actions)
+        self.actions=CaptureGlassPanel(self)
         self.action_layout=QHBoxLayout(self.actions);self.action_layout.setSpacing(5);self.action_layout.setContentsMargins(9,9,9,9)
         self.action_layout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetNoConstraint)
         self.style_groups=[];self.option_groups={}
@@ -62,7 +56,7 @@ class SelectionOverlay(QWidget):
         for key,title,icon in [('view','调整选区','capture'),('select','选择 / 移动标注','cursor'),
                               ('rectangle','矩形','rectangle'),('arrow','箭头','arrow'),('text','文字','text'),('mask','马赛克 · 按住拖动自由涂抹','mask')]:
             button=QPushButton();button.setFixedSize(34,34);button.setCheckable(True)
-            button.setToolTip(title);button.setAccessibleName(title);button.setIcon(line_icon(icon,'#edf5f0'));button.setIconSize(QSize(21,21))
+            button.setToolTip(title);button.setAccessibleName(title);button.setIcon(line_icon(icon,ICON_COLOR));button.setIconSize(QSize(21,21))
             button.clicked.connect(lambda checked=False,value=key:self.set_tool(value))
             self.tool_group.addButton(button);self.tool_buttons[key]=button
             self.action_layout.addWidget(button);self.photo_controls.append(button)
@@ -90,7 +84,7 @@ class SelectionOverlay(QWidget):
         self.brush_spin.setToolTip('马赛克涂抹范围的直径')
         self.block_spin.setToolTip('马赛克像素块的大小')
         for title,icon,attr,handler in [('撤销','undo','undo_button',self.undo),('重做','redo','redo_button',self.redo)]:
-            button=QPushButton();button.setFixedSize(34,34);button.setIcon(line_icon(icon,'#edf5f0'));button.setIconSize(QSize(21,21))
+            button=QPushButton();button.setFixedSize(34,34);button.setIcon(line_icon(icon,ICON_COLOR));button.setIconSize(QSize(21,21))
             button.setToolTip(title+' · '+('Ctrl+Z' if icon=='undo' else 'Ctrl+Y'));button.setAccessibleName(title)
             button.clicked.connect(handler);self.action_layout.addWidget(button);self.photo_controls.append(button);setattr(self,attr,button)
         self.save_button=QPushButton('保存到桌面');self.save_button.setToolTip('保存 PNG，并复制到剪贴板')
@@ -114,18 +108,27 @@ class SelectionOverlay(QWidget):
     def refresh_toolbar(self):
         if not hasattr(self,'hint_label'):return
         hint='框选后直接标注  ·  Enter 复制  ·  Esc 取消'
-        if self.mode=='video':hint='无声录屏  ·  '+self.stop_key+' 停止'
+        if self.mode=='video':hint=audio_label(self.video_audio_mode)+'  ·  '+self.stop_key+' 停止'
         if self.mode=='long':hint='框选正文后滚动页面  ·  Enter 开始'
         if self.selection_locked:hint='区域已锁定  ·  Esc 取消'
         if self.error_text:hint=self.error_text
         self.hint_label.setToolTip('拖动选取区域；拖动边缘调整大小，内部移动。'+hint)
-        width=max(70,min(320,self.width()-350))
+        width=max(70,min(320,self.width()-(500 if self.mode=='video' else 350)))
         self.hint_label.setText(self.hint_label.fontMetrics().elidedText(hint,Qt.TextElideMode.ElideRight,width))
         self.hint_label.setMaximumWidth(width)
         for mode,button in self.mode_buttons.items():
-            button.setIcon(line_icon('video' if mode=='video' else 'capture','#ffffff' if button.isChecked() else '#6a8574'))
+            button.setIcon(line_icon('video' if mode=='video' else 'capture','#ffffff' if button.isChecked() else MUTED_ICON_COLOR))
             button.setIconSize(QSize(16,16))
         self.modes.adjustSize();self.modes.move(max(12,(self.width()-self.modes.width())//2),22)
+    def set_video_audio_mode(self,mode,announce=False):
+        if self.selection_locked:return
+        self.video_audio_mode=normalize_audio_mode(mode)
+        blocked=self.video_audio_combo.blockSignals(True)
+        self.video_audio_combo.setCurrentIndex(1 if self.video_audio_mode=='system' else 0)
+        self.video_audio_combo.blockSignals(blocked)
+        self.refresh_toolbar()
+        if self.mode=='video':self.confirm_button.setToolTip('开始'+audio_label(self.video_audio_mode)+'录屏')
+        if announce:self.video_audio_changed.emit(self.video_audio_mode)
     def resizeEvent(self,event):
         super().resizeEvent(event);self.refresh_toolbar()
         if hasattr(self,'actions') and self.actions.isVisible():self.position_actions()
@@ -133,11 +136,12 @@ class SelectionOverlay(QWidget):
         if self.selection_locked:return
         if mode not in self.mode_buttons:return
         self.mode=mode;self.mode_buttons[mode].setChecked(True)
+        self.video_audio_combo.setVisible(mode=='video')
         if self.canvas:self.canvas.finish_text();self.canvas.setVisible(mode=='photo')
         for widget in self.photo_controls:widget.setVisible(mode=='photo')
         self.refresh_options()
         self.confirm_button.setText('开始录制  ↵' if mode=='video' else '开始长截图  ↵' if mode=='long' else '完成 · 复制')
-        self.confirm_button.setToolTip('开始无声录屏' if mode=='video' else '框选区域内向下滚动，自动拼接' if mode=='long' else '仅复制，不创建图片文件 · Enter')
+        self.confirm_button.setToolTip('开始'+audio_label(self.video_audio_mode)+'录屏' if mode=='video' else '框选区域内向下滚动，自动拼接' if mode=='long' else '仅复制，不创建图片文件 · Enter')
         self.confirm_button.setIcon(line_icon('video' if mode=='video' else 'check','#ffffff'))
         self.refresh_toolbar()
         if self.actions.isVisible():self.position_actions()
@@ -242,8 +246,8 @@ class SelectionOverlay(QWidget):
 
     def refresh_canvas(self,reset=False):
         image=crop_selection(self.image,self.selection_rect(),self.size())
-        r=self.selection_rect();sx,sy=self.image.width()/self.width(),self.image.height()/self.height()
-        origin=QPointF(math.floor(r.left()*sx),math.floor(r.top()*sy))
+        r=self.selection_rect();sx,sy=pixel_scale(self.image,self.size())
+        origin=QPointF(selection_pixels(self.image,r,self.size()).topLeft())
         previous=self.canvas
         if previous is None:
             self.canvas=InlineAnnotationCanvas(image,self)
@@ -263,7 +267,9 @@ class SelectionOverlay(QWidget):
                 previous.history=[shifted(m) for m in previous.history];previous.future=[shifted(m) for m in previous.future]
             previous.image=image;previous.cached_image=previous.cached_marks=None;previous.selected_index=None
         self.crop_origin=origin
-        self.canvas.setGeometry(r.toRect());self.canvas.set_tool(self.tool)
+        self.canvas.setGeometry(r.toRect())
+        self.canvas.pixel_mapping=(sx,sy,origin.x()/sx-self.canvas.x(),origin.y()/sy-self.canvas.y())
+        self.canvas.set_tool(self.tool)
         self.canvas.setVisible(self.mode=='photo');self.canvas.update();self.update_annotation_controls()
         self.actions.raise_();self.modes.raise_()
 
@@ -272,28 +278,32 @@ class SelectionOverlay(QWidget):
         self.redo_button.setEnabled(bool(self.canvas and self.canvas.future) and not self.selection_locked)
         self.refresh_options()
     def paintEvent(self,event):
-        p=QPainter(self);p.drawImage(QRectF(self.rect()),self.image);p.fillRect(self.rect(),QColor(12,25,21,112))
+        sx,sy=pixel_scale(self.image,self.size())
+        snapshot_rect=QRectF(0,0,self.image.width()/sx,self.image.height()/sy)
+        p=QPainter(self);p.drawImage(snapshot_rect,self.image);p.fillRect(self.rect(),QColor(7,15,26,112))
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         if self.start is not None:
-            r=self.selection_rect();sx,sy=self.image.width()/self.width(),self.image.height()/self.height()
-            p.drawImage(r,self.image,QRectF(r.x()*sx,r.y()*sy,r.width()*sx,r.height()*sy))
-            p.setPen(QPen(QColor('#41d4a5'),3));p.setBrush(Qt.BrushStyle.NoBrush);p.drawRect(r)
+            r=self.selection_rect()
+            p.save();p.setClipRect(r);p.drawImage(snapshot_rect,self.image);p.restore()
+            p.setPen(QPen(QColor(SELECTION_COLOR),1.5));p.setBrush(Qt.BrushStyle.NoBrush);p.drawRect(r)
             corner=min(15,r.width()/3,r.height()/3)
-            p.setPen(QPen(QColor('#71f3c6'),4,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
+            p.setPen(QPen(QColor(CORNER_COLOR),2,Qt.PenStyle.SolidLine,Qt.PenCapStyle.RoundCap))
             for point,dx,dy in [(r.topLeft(),1,1),(r.topRight(),-1,1),(r.bottomLeft(),1,-1),(r.bottomRight(),-1,-1)]:
                 p.drawLine(point,point+QPointF(dx*corner,0));p.drawLine(point,point+QPointF(0,dy*corner))
-            p.setPen(QPen(QColor('#199774'),2));p.setBrush(QColor('#ffffff'))
-            for point in self.handles().values():p.drawEllipse(point,4,4)
+            p.setPen(QPen(QColor(HANDLE_COLOR),1.2));p.setBrush(QColor('#e5f5ff'))
+            for point in self.handles().values():p.drawEllipse(point,3.5,3.5)
             font=QFont('Microsoft YaHei UI');font.setPixelSize(12);p.setFont(font)
-            pixel_width=max(0,min(self.image.width(),math.ceil(r.right()*sx))-max(0,math.floor(r.left()*sx)))
-            pixel_height=max(0,min(self.image.height(),math.ceil(r.bottom()*sy))-max(0,math.floor(r.top()*sy)))
+            pixels=selection_pixels(self.image,r,self.size()) if r.width()>=2 and r.height()>=2 else None
+            pixel_width=pixels.width() if pixels else 0
+            pixel_height=pixels.height() if pixels else 0
             text=f'{pixel_width} × {pixel_height} px'
             badge_width=p.fontMetrics().horizontalAdvance(text)+26
             x=max(8,min(self.width()-badge_width-8,r.left()));y=max(8,r.top()-38)
             badge=QRectF(x,y,badge_width,28)
             if badge.intersects(QRectF(self.modes.geometry())):badge.moveTop(max(8,r.top()+12))
-            p.setPen(Qt.PenStyle.NoPen);p.setBrush(QColor('#173f32'));p.drawRoundedRect(badge,10,10)
-            p.setPen(QColor('#f1fff6'));p.drawText(badge,Qt.AlignmentFlag.AlignCenter,text)
+            p.setPen(Qt.PenStyle.NoPen);p.setBrush(QColor(17,36,53,235));p.drawRoundedRect(badge,8,8)
+            p.setPen(QColor('#e5f5ff'));p.drawText(badge,Qt.AlignmentFlag.AlignCenter,text)
+        paint_panel_shadows(p,(self.modes,self.actions))
         p.end()
     def mousePressEvent(self,event):
         if event.button()==Qt.MouseButton.RightButton:self.cancelled.emit();return

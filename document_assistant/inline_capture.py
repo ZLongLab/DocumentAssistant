@@ -4,6 +4,7 @@ from PySide6.QtGui import QColor, QCursor, QPainter, QPen
 from PySide6.QtWidgets import QLineEdit
 from .capture_canvas import AnnotationCanvas
 from .capture_markup import draw_annotation, mark_bounds
+from .capture_material import SELECTION_COLOR, HANDLE_COLOR
 
 
 class InlineAnnotationCanvas(AnnotationCanvas):
@@ -20,16 +21,23 @@ class InlineAnnotationCanvas(AnnotationCanvas):
         self.set_tool('view')
 
     def scale(self):
+        if hasattr(self,'pixel_mapping'):
+            sx,sy,_,_=self.pixel_mapping
+            return min(1/sx,1/sy)
         return min(self.width()/max(1,self.image.width()), self.height()/max(1,self.image.height()))
 
     def image_rect(self):
+        if hasattr(self,'pixel_mapping'):
+            sx,sy,x,y=self.pixel_mapping
+            return QRectF(x,y,self.image.width()/sx,self.image.height()/sy)
         return QRectF(self.rect())
 
     def image_point(self, point):
-        if not self.image_rect().contains(point):
+        if not QRectF(self.rect()).contains(point):
             return None
-        return QPointF(point.x()*self.image.width()/max(1,self.width()),
-                       point.y()*self.image.height()/max(1,self.height()))
+        rect=self.image_rect()
+        return QPointF((point.x()-rect.x())*self.image.width()/max(.01,rect.width()),
+                       (point.y()-rect.y())*self.image.height()/max(.01,rect.height()))
 
     def set_tool(self, tool):
         self.finish_text()
@@ -56,25 +64,28 @@ class InlineAnnotationCanvas(AnnotationCanvas):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.drawImage(QRectF(self.rect()), self.rendered())
+        rect=self.image_rect()
+        painter.drawImage(rect, self.rendered())
         painter.save()
-        painter.scale(self.width()/max(1,self.image.width()), self.height()/max(1,self.image.height()))
+        painter.translate(rect.topLeft())
+        painter.scale(rect.width()/max(1,self.image.width()), rect.height()/max(1,self.image.height()))
         if self.start is not None and self.end is not None:
             draw_annotation(painter, self.new_mark(self.start,self.end), self.image.size(),
                             self.mosaic_source() if self.tool == 'mask' else None)
         if self.selected_index is not None and self.selected_index < len(self.marks):
-            painter.setPen(QPen(QColor('#41d4a5'),1.5/max(.01,self.scale()),Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(SELECTION_COLOR),1.5/max(.01,self.scale()),Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(mark_bounds(self.marks[self.selected_index],self.image.size()).adjusted(-4,-4,4,4))
         painter.restore()
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor('#41d4a5'),3))
+        painter.setPen(QPen(QColor(SELECTION_COLOR),1.5))
         painter.drawRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5))
-        painter.setBrush(QColor('white'))
+        painter.setPen(QPen(QColor(HANDLE_COLOR),1.2))
+        painter.setBrush(QColor('#e5f5ff'))
         x,y=self.width()/2,self.height()/2
         for point in (QPointF(0,0),QPointF(x,0),QPointF(self.width(),0),QPointF(self.width(),y),
                       QPointF(self.width(),self.height()),QPointF(x,self.height()),QPointF(0,self.height()),QPointF(0,y)):
-            painter.drawEllipse(point,4,4)
+            painter.drawEllipse(point,3.5,3.5)
         if self.tool == 'mask' and self.brush_position is not None:
             radius=self.brush_size*self.scale()/2
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -128,10 +139,11 @@ class InlineAnnotationCanvas(AnnotationCanvas):
         editor.setMaxLength(500)
         editor.setText(text)
         editor.setPlaceholderText('输入文字，Enter 确认')
-        editor.setStyleSheet('QLineEdit { color:#172e25; background:white; border:1px solid #41d4a5; border-radius:4px; padding:4px; }')
+        editor.setStyleSheet('QLineEdit { color:#e8f2fa; background:#172a3b; border:1px solid #85c9ee; border-radius:4px; padding:4px; selection-background-color:#2c81ac; }')
         font=editor.font();font.setPixelSize(max(12,round(self.text_size*self.scale())));editor.setFont(font)
-        x=round(anchor.x()*self.width()/self.image.width())
-        y=round(anchor.y()*self.height()/self.image.height())
+        rect=self.image_rect()
+        x=round(rect.x()+anchor.x()*rect.width()/self.image.width())
+        y=round(rect.y()+anchor.y()*rect.height()/self.image.height())
         editor.setGeometry(max(0,min(x,self.width()-60)),max(0,min(y,self.height()-30)),
                            max(30,min(300,self.width()-x)),max(24,min(40,self.height())))
         self.text_editor=editor

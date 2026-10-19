@@ -3,14 +3,22 @@
 **把实验报告、课程资料和文献整理好，也把截图留在顺手的位置。**
 
 Windows 本地文档管理与截图工具。按文档内容建议分类，检查后复制归档；
-独立截图、原位标注、滚动长截图和无声录屏。分类与检索在本地完成，无需 AI API。
+独立截图、原位标注、滚动长截图和可选声音的录屏。分类与检索在本地完成，无需 AI API。
 
 [下载 Windows 安装包](https://github.com/ZLongLab/DocumentAssistant/releases/latest)
 · [快速上手](#快速上手) · [源码运行](#源码运行)
 
-![文档整理工作台](docs/workbench.png)
+![蓝黑原生标题栏与冰蓝玻璃图标，图中全部为临时示例](docs/window-glass-titlebar.png)
+
+本地源码已同步标题栏与应用图标：星空主题使用蓝黑原生标题栏，窗口、托盘、任务栏和快捷方式统一使用冰蓝玻璃文件夹图标。保留系统窗口按钮；[修改与验证说明](WINDOW_GLASS_UPDATE.md)。
+
+本地源码界面根据最新反馈更新为蓝黑星空与毛玻璃工作台：蓝青星云、冰蓝操作按钮、模糊背景面板和更少的描边，保留全部现有管理功能。毛玻璃采用应用内背景空间模糊，文字保持清晰。示例预览运行 `python test_minimal_design.py`，正常使用仍运行 `Start-DocumentAssistant.cmd`。本轮未重新构建下方的 0.23.3 安装包；下载版与本地源码可能不同。最新说明见 [GLASS_UI_UPDATE.md](GLASS_UI_UPDATE.md)。
 
 ## 下载和安装
+
+本地文档库页面已进一步优化文字、搜索高亮、深色标签、单选/多选操作和长标题显示。“清理失效记录”位于文档库的“维护”菜单。已运行的旧窗口需要从托盘“退出”后重开，才能加载更新代码。[本轮说明与验证](LIBRARY_UI_UPDATE.md)
+
+![文档库优化，图中全部为临时示例](docs/library-starry-readable.png)
 
 当前版本 **0.23.3**，适用于 Windows 10 / 11 x64。
 
@@ -41,6 +49,12 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 ![导入、分类、归档与搜索演示](docs/document-workflow.gif)
 
 ### 截图与标注
+
+本地源码的截图工具栏已同步为蓝黑毛玻璃和冰蓝选区，减少描边与阴影；[更新及验证说明](CAPTURE_GLASS_UPDATE.md)。已有进程需从托盘退出后重开。
+
+高 DPI 下框选时的画面错位已修复，改为按原始物理像素比例显示与裁剪；[修复和验证范围](CAPTURE_STABILITY_FIX.md)。
+
+![截图工具栏毛玻璃，底图全部为生成的临时示例](docs/capture-starry-glass.png)
 
 1. 程序运行时按 **Alt+S**，默认进入拍照模式。
 2. 拖动选择区域，直接在选区旁的工具栏标注矩形、箭头、文字或马赛克。
@@ -74,10 +88,13 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 
 ### 录屏与主题
 
-截图界面切换“视频”，选择区域后按 Enter，倒计时结束开始录制。
-再次按截图快捷键或点击停止，预览后保存 MP4。目前录制无声视频。
+截图界面切换“视频”，在旁边选择“无声”或“有声（电脑声音）”，框选区域后按 Enter，倒计时结束开始录制。
+有声模式录入 Windows 默认播放设备的课程、视频等声音，不启用麦克风；无声模式只录画面。
+再次按截图快捷键或点击停止，预览后保存 MP4。有声预览支持播放声音和静音。[实现与验证说明](VIDEO_AUDIO_UPDATE.md)
 
-侧栏的主题按钮可以切换“海蓝晶石”和“暖玫瑰金”，下次启动自动恢复。
+![录屏声音选择，底图全部为生成的示例](docs/video-audio-options.png)
+
+侧栏的主题按钮可以切换“星空毛玻璃”“海蓝晶石”和“暖玫瑰金”，下次启动自动恢复。新版工作台首次使用星空毛玻璃，后续尊重用户的主题选择。文件详情默认收起，可从底部“文件详情”展开。
 
 <details>
 <summary>查看暖玫瑰金主题</summary>
@@ -93,10 +110,10 @@ Windows 本地文档管理与截图工具。按文档内容建议分类，检查
 - PDF、DOCX、TXT 及部分旧版 DOC 的正文提取与规则分类。
 - 文件名、正文、标签和备注检索，阅读状态、PDF 页面预览及打开文件。
 - 重复文件提示、归档恢复、文档库备份与恢复。
-- 截图、原位标注、自由马赛克、滚动长截图、无声区域录屏、托盘及开机自启动。
+- 截图、原位标注、自由马赛克、滚动长截图、无声/电脑声音区域录屏、托盘及开机自启动。
 
 扫描件 OCR、AI 问答和云同步尚未提供。Word 原始排版预览尚未提供。
-录屏约 20 帧/秒，需要可用的 H.264 编码器，目前没有声音录制或视频剪辑。
+录屏约 20 帧/秒，需要可用的 H.264 编码器；有声模式还需要 AAC 编码器和 Windows WASAPI 回录设备。目前不提供麦克风录制或视频剪辑。
 多显示器、不同缩放比例及不同电脑的编码器兼容性仍需进一步验证。
 
 ## 数据位置和卸载
@@ -127,3 +144,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -Python "D:\Pyth
 
 项目使用 Python、PySide6 和 SQLite。[Windows 打包方法](packaging/README.md)
 及 [第三方组件说明](THIRD_PARTY_NOTICES.md) 随源码提供。
+
+## 开发验证
+
+在已安装依赖的项目目录运行：
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = '1'
+$env:QT_QPA_PLATFORM = 'offscreen'
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+$env:QT_QPA_PLATFORM = 'windows'
+.\.venv\Scripts\python.exe validate_minimal_layout.py --layout minimal
+.\.venv\Scripts\python.exe validate_minimal_layout.py --layout classic
+```
+
+2026-10-19：147 项临时示例/模拟回归测试通过，两种真实 Windows 窗口的初始化、导航、主题切换和关闭检查通过。隔离的 Qt 测试不替代真实系统剪贴板、长时间录屏或其他电脑的兼容性验证；标题栏、截图和声音的实际验证范围见各更新说明。

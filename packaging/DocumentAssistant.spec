@@ -8,10 +8,10 @@ assets = [(str(path), 'document_assistant') for path in (root / 'document_assist
 assets += [(str(root / 'THIRD_PARTY_NOTICES.md'), '.'), (str(Path(sys.base_prefix) / 'LICENSE.txt'), '.')]
 assets += [(str(root / 'packaging' / 'licenses'), 'licenses')]
 for package in ('PySide6', 'PySide6_Essentials', 'PySide6_Addons', 'PySide6_Pdf', 'shiboken6',
-                'pypdf', 'python-docx', 'lxml', 'olefile', 'typing_extensions'):
+                'pypdf', 'python-docx', 'lxml', 'olefile', 'typing_extensions', 'PyAudioWPatch'):
     assets += copy_metadata(package)
 a = Analysis([str(root / 'desktop.py')], pathex=[str(root)], binaries=[], datas=assets,
-             hiddenimports=['document_assistant.extractor'],
+             hiddenimports=['document_assistant.extractor', 'pyaudiowpatch'],
              excludes=['PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineQuick',
                        'PySide6.QtQml', 'PySide6.QtQuick', 'tkinter', 'PIL', 'unittest', 'pytest'])
 # Windows 10+ supplies the Universal CRT and API-set contracts. Shipping copies
