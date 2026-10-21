@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEvent, QLibraryInfo, QThread, QTimer, QTranslator, QUrl, Qt, Signal
-from PySide6.QtGui import QDesktopServices, QColor, QIcon
+from PySide6.QtGui import QDesktopServices, QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QHeaderView, QLabel, QMainWindow,
@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .rules import CATEGORIES, DEFAULT_RULES, classify, load_rules, save_rules, validate_rules
-from .service import EXTENSIONS, PROJECT_ROOT, archive_batch, scan_files, scan_folder, validate_library
+from .service import EXTENSIONS, PROJECT_ROOT, archive_batch, scan_files, scan_folder, validate_library, within
 from .storage import Catalog, archive_file_state
 from .presentation import GLYPH, SUBTEXT, SUCCESS, WARNING, HintTable
 from .windows_identity import ICON_PATH, configure_process, tag_window
@@ -26,6 +26,7 @@ from .document_metadata import attention_rank
 from .rules import categories_for
 from .presentation import MATCH_TERMS
 from .organization import query_terms
+from .paths import comparison_path, filesystem_path
 
 
 def runtime_directory() -> Path:
@@ -171,6 +172,12 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
         self.search_timer.timeout.connect(self.refresh_search)
         self.setAcceptDrops(True)
         self.build_ui()
+        self.find_shortcut = QShortcut(QKeySequence(QKeySequence.StandardKey.Find), self)
+        self.find_shortcut.activated.connect(self.focus_library_search)
+        self.refresh_shortcut = QShortcut(QKeySequence('F5'), self)
+        self.refresh_shortcut.activated.connect(self.refresh_library)
+        self.search_button.setToolTip('搜索文档；F5 刷新当前结果及文件状态')
+        self.search_edit.setToolTip('搜索已归档文件；Ctrl+F 快速进入搜索并选中现有关键词')
         from .window_chrome import WindowChrome
         self.window_chrome=WindowChrome(self,self.settings.get('theme','ocean'))
         self.populate_scan({str(item.path):item.selected for item in self.items})
@@ -346,10 +353,10 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
 
     def set_library(self, path):
         validate_library(path)
-        if self.source_edit.text() and Path(self.source_edit.text()).resolve().is_relative_to(path.resolve()):
+        if self.source_edit.text() and within(Path(self.source_edit.text()), path):
             raise ValueError("来源文件夹不能是文档库或文档库的子文件夹")
         new_catalog = Catalog(path)
-        if any(item.path.resolve().is_relative_to(new_catalog.library) for item in self.items):
+        if any(within(item.path, new_catalog.library) for item in self.items):
             raise ValueError('待整理文件位于这个文档库内，请先清空列表或选择其他文档库')
         saved_ids = [(item, new_catalog.save_scan(item)) for item in self.items] if not self.catalog or self.catalog.library != new_catalog.library else []
         for item, doc_id in saved_ids:
@@ -752,6 +759,18 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
         if successful < len(results):
             QMessageBox.warning(self, "部分文件归档失败", "\n".join(message for _, ok, message in results if not ok)[:3000])
 
+    def focus_library_search(self):
+        if self.worker or self.closing:
+            return
+        self.tabs.setCurrentIndex(1)
+        self.search_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.search_edit.selectAll()
+
+    def refresh_library(self):
+        if self.worker or self.closing or not self.catalog or self.tabs.currentIndex() != 1:
+            return
+        self.refresh_search()
+
     def queue_search(self):
         # A change invalidates old results immediately, before debounce expires.
         self.search_generation += 1
@@ -906,10 +925,10 @@ class MainWindow(KnowledgeActions, SearchActions, WorkflowActions, QMainWindow):
                 self.history_table.setItem(row, column, cell)
 
     def open_path(self, path: Path):
-        if not path.exists():
+        if not filesystem_path(path).exists():
             QMessageBox.warning(self, "文件不存在", f"文件可能已被移动或删除：\n{path}")
             return False
-        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve()))):
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(comparison_path(path)))):
             QMessageBox.warning(self, "无法打开", "Windows 未能打开该路径，请检查默认应用关联。")
             return False
         return True

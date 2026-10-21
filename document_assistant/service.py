@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,7 @@ from pathlib import Path
 from .rules import CATEGORIES, classify, categories_for
 from .document_metadata import title_suggestion, category_rule_match, classification_suggestion
 from .storage import Catalog
-from .paths import comparison_path
+from .paths import comparison_path, filesystem_path, sqlite_filename
 
 PROJECT_ROOT = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[1]
 EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
@@ -52,6 +53,7 @@ def validate_library(path: Path):
 
 
 def extract_isolated(path: Path) -> dict:
+    path = filesystem_path(path)
     try:
         if getattr(sys, 'frozen', False):
             # Windowed executables do not expose Python stdout, even with pipes.
@@ -75,26 +77,42 @@ def extract_isolated(path: Path) -> dict:
         return {"text": "", "status": f"无法提取：{str(exc)[:180]}"}
 
 
+def directory_link(path: Path) -> bool:
+    """Junctions are directory links too, but not ordinary OneDrive placeholders."""
+    # Keep the final link itself for lstat; resolve() would inspect its target.
+    name = os.path.abspath(path)
+    if os.name == 'nt' and not name.startswith('\\\\?\\'):
+        name = '\\\\?\\UNC\\' + name[2:] if name.startswith('\\\\') else '\\\\?\\' + name
+    path = Path(name)
+    if path.is_symlink():
+        return True
+    try:
+        return getattr(path.lstat(), 'st_reparse_tag', 0) == getattr(stat, 'IO_REPARSE_TAG_MOUNT_POINT', 0xA0000003)
+    except OSError:
+        return False  # os.walk reports inaccessible directories via onerror.
+
+
 def scan_folder(source: Path, rules: dict, library: Path | None = None,
                 progress=lambda *_: None, cancelled=lambda: False, organization_rules=None):
     source = source.resolve()
-    if not source.is_dir():
+    if not filesystem_path(source).is_dir():
         raise ValueError("来源文件夹不存在")
     if library and within(source, library):
         raise ValueError("来源文件夹不能是文档库或文档库的子文件夹")
     paths, warnings = [], []
     def on_error(error):
         warnings.append(f"目录无法访问：{error.filename}：{error.strerror}")
-    for root, dirs, files in os.walk(source, followlinks=False, onerror=on_error):
+    # Prefix even a short Windows root: its descendants can exceed MAX_PATH.
+    for root, dirs, files in os.walk(sqlite_filename(source), followlinks=False, onerror=on_error):
         if cancelled():
             return [], ["扫描已取消"]
         dirs[:] = [d for d in dirs if d not in {".git", ".venv", "__pycache__", ".documentassistant"}
-                   and not (Path(root) / d).is_symlink()
+                   and not directory_link(Path(root) / d)
                    and not (library and within(Path(root) / d, library))]
         for name in files:
             path = Path(root) / name
             if path.suffix.lower() in EXTENSIONS and not name.startswith("~$") and not path.is_symlink():
-                paths.append(path)
+                paths.append(comparison_path(path))
         progress(0, 0, f"正在发现文件：已找到 {len(paths)} 个")
     return _scan_paths(sorted(paths), rules, library, progress, cancelled, warnings, organization_rules)
 
@@ -105,15 +123,15 @@ def scan_files(paths, rules: dict, library: Path | None = None,
     accepted, seen, warnings = [], set(), []
     for supplied in paths:
         path = Path(supplied).absolute()
-        if path.is_symlink():
+        if filesystem_path(path).is_symlink():
             warnings.append(f"已跳过链接：{path.name}")
             continue
-        path = path.resolve()
+        path = comparison_path(path)
         key = str(path).casefold()
         if key in seen:
             continue
         seen.add(key)
-        if not path.is_file():
+        if not filesystem_path(path).is_file():
             warnings.append(f"已跳过：{path.name} 不是可访问的文件；文件夹请使用“扫描文件夹”")
         elif path.suffix.lower() not in EXTENSIONS or path.name.startswith("~$"):
             warnings.append(f"已跳过不支持的文件：{path.name}（支持 PDF、DOCX、DOC、TXT）")
@@ -143,12 +161,12 @@ def _scan_paths(paths, rules, library, progress, cancelled, warnings, organizati
             break
         progress(index - 1, len(paths), f"提取 {path.name}")
         try:
-            before = path.stat()
+            before = filesystem_path(path).stat()
             digest_before = sha256(path,cancelled)
             cached = catalog.cached_extraction(path,digest_before) if catalog and not refresh_body else None
             extracted = {'text':cached['body'],'status':cached['extraction_status'],'display_title':cached['display_title'],'title_source':cached['title_source']} if cached else extract_isolated(path)
             digest_after = sha256(path,cancelled)
-            after = path.stat()
+            after = filesystem_path(path).stat()
             if digest_before != digest_after or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                 extracted = {"text": "", "status": "文件在扫描时发生变化，请重新扫描"}
             category, reason = classification_suggestion(path,extracted["text"],rules,saved_rules)
@@ -183,7 +201,7 @@ def _scan_paths(paths, rules, library, progress, cancelled, warnings, organizati
 
 def sha256(path: Path, cancelled=lambda: False) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with filesystem_path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             if cancelled():
                 raise InterruptedError('已停止当前文件处理')

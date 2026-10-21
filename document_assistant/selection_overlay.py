@@ -2,7 +2,7 @@
 import copy,math
 from PySide6.QtCore import QPointF,QRectF,Qt,Signal,QSize
 from PySide6.QtGui import QColor,QPainter,QPen,QFont,QShortcut,QKeySequence
-from PySide6.QtWidgets import QWidget,QPushButton,QHBoxLayout,QFrame,QButtonGroup,QLabel,QSpinBox,QComboBox
+from PySide6.QtWidgets import QWidget,QPushButton,QHBoxLayout,QVBoxLayout,QFrame,QButtonGroup,QLabel,QSpinBox,QComboBox
 from .capture_pixels import crop_selection, pixel_scale, selection_pixels
 from .presentation import line_icon
 from .inline_capture import InlineAnnotationCanvas
@@ -31,11 +31,17 @@ class SelectionOverlay(QWidget):
         self.canvas=None;self.crop_origin=None;self.tool='view';self.error_text=''
         self.saved_path=self.saved_image=None
         self.tool_preferences=normalize_tools(preferences)
-        self.modes=CaptureGlassPanel(self)
-        modes=QHBoxLayout(self.modes);modes.setContentsMargins(7,7,14,7);modes.setSpacing(5)
+        self.actions=CaptureGlassPanel(self)
+        self.actions.setCursor(Qt.CursorShape.ArrowCursor)
+        self.toolbar_layout=QVBoxLayout(self.actions);self.toolbar_layout.setContentsMargins(9,9,9,9);self.toolbar_layout.setSpacing(6)
+        self.action_layout=QHBoxLayout();self.action_layout.setContentsMargins(0,0,0,0);self.action_layout.setSpacing(5)
+        self.toolbar_layout.addLayout(self.action_layout)
+        self._modes_stacked=False
+        self.modes=QWidget(self.actions);self.modes.setObjectName('captureModes')
+        modes=QHBoxLayout(self.modes);modes.setContentsMargins(0,0,0,0);modes.setSpacing(4)
         self.mode_group=QButtonGroup(self);self.mode_buttons={}
-        for key,label in [('photo','拍照'),('long','长截图'),('video','视频')]:
-            button=QPushButton(label);button.setCheckable(True);button.setMinimumWidth(72);button.setFixedHeight(38)
+        for key,label in [('photo','截图'),('long','长截图'),('video','视频')]:
+            button=QPushButton(label);button.setCheckable(True);button.setMinimumWidth(72);button.setFixedHeight(34)
             self.mode_group.addButton(button);modes.addWidget(button)
             button.clicked.connect(lambda checked=False,value=key:self.set_mode(value,True));self.mode_buttons[key]=button
         self.mode_buttons['photo'].setChecked(True)
@@ -48,8 +54,7 @@ class SelectionOverlay(QWidget):
         modes.addWidget(self.video_audio_combo);self.video_audio_combo.hide()
         divider=QFrame();divider.setObjectName('selectionDivider');divider.setFixedSize(1,22);modes.addSpacing(7);modes.addWidget(divider);modes.addSpacing(7)
         self.hint_label=QLabel();self.hint_label.setObjectName('selectionHint');modes.addWidget(self.hint_label)
-        self.actions=CaptureGlassPanel(self)
-        self.action_layout=QHBoxLayout(self.actions);self.action_layout.setSpacing(5);self.action_layout.setContentsMargins(9,9,9,9)
+        self.action_layout.addWidget(self.modes)
         self.action_layout.setSizeConstraint(QHBoxLayout.SizeConstraint.SetNoConstraint)
         self.style_groups=[];self.option_groups={}
         self.photo_controls=[];self.tool_buttons={};self.tool_group=QButtonGroup(self)
@@ -104,12 +109,12 @@ class SelectionOverlay(QWidget):
         for key,handler in [('Return',lambda:self.confirm(True)),('Enter',lambda:self.confirm(True)),('Escape',self.cancelled.emit),('Ctrl+Z',self.undo),('Ctrl+Y',self.redo)]:
             shortcut=QShortcut(QKeySequence(key),self);shortcut.activated.connect(handler)
         self.shortcuts=self.findChildren(QShortcut)
-        self.actions.hide();self.refresh_options();self.refresh_toolbar()
+        self.actions.hide();self.refresh_options();self.refresh_toolbar();self.position_actions()
     def refresh_toolbar(self):
         if not hasattr(self,'hint_label'):return
         hint='框选后直接标注  ·  Enter 复制  ·  Esc 取消'
         if self.mode=='video':hint=audio_label(self.video_audio_mode)+'  ·  '+self.stop_key+' 停止'
-        if self.mode=='long':hint='框选正文后滚动页面  ·  Enter 开始'
+        if self.mode=='long':hint='框选正文后上下滚动  ·  Enter 开始'
         if self.selection_locked:hint='区域已锁定  ·  Esc 取消'
         if self.error_text:hint=self.error_text
         self.hint_label.setToolTip('拖动选取区域；拖动边缘调整大小，内部移动。'+hint)
@@ -119,7 +124,7 @@ class SelectionOverlay(QWidget):
         for mode,button in self.mode_buttons.items():
             button.setIcon(line_icon('video' if mode=='video' else 'capture','#ffffff' if button.isChecked() else MUTED_ICON_COLOR))
             button.setIconSize(QSize(16,16))
-        self.modes.adjustSize();self.modes.move(max(12,(self.width()-self.modes.width())//2),22)
+        if hasattr(self,'confirm_button'):self.position_actions()
     def set_video_audio_mode(self,mode,announce=False):
         if self.selection_locked:return
         self.video_audio_mode=normalize_audio_mode(mode)
@@ -138,10 +143,9 @@ class SelectionOverlay(QWidget):
         self.mode=mode;self.mode_buttons[mode].setChecked(True)
         self.video_audio_combo.setVisible(mode=='video')
         if self.canvas:self.canvas.finish_text();self.canvas.setVisible(mode=='photo')
-        for widget in self.photo_controls:widget.setVisible(mode=='photo')
         self.refresh_options()
         self.confirm_button.setText('开始录制  ↵' if mode=='video' else '开始长截图  ↵' if mode=='long' else '完成 · 复制')
-        self.confirm_button.setToolTip('开始'+audio_label(self.video_audio_mode)+'录屏' if mode=='video' else '框选区域内向下滚动，自动拼接' if mode=='long' else '仅复制，不创建图片文件 · Enter')
+        self.confirm_button.setToolTip('开始'+audio_label(self.video_audio_mode)+'录屏' if mode=='video' else '框选区域内上下滚动，自动拼接并去重' if mode=='long' else '仅复制，不创建图片文件 · Enter')
         self.confirm_button.setIcon(line_icon('video' if mode=='video' else 'check','#ffffff'))
         self.refresh_toolbar()
         if self.actions.isVisible():self.position_actions()
@@ -160,9 +164,17 @@ class SelectionOverlay(QWidget):
         return {'nw':r.topLeft(),'n':QPointF(x,r.top()),'ne':r.topRight(),'e':QPointF(r.right(),y),
             'se':r.bottomRight(),'s':QPointF(x,r.bottom()),'sw':r.bottomLeft(),'w':QPointF(r.left(),y)}
     def position_actions(self):
+        if not hasattr(self,'confirm_button'):return
         r=self.selection_rect()
-        available=self.width()-24
-        # Use the whole row's natural width; never wrap the completion button.
+        selected=self.start is not None
+        self.confirm_button.setVisible(selected)
+        self.hint_label.setVisible(not selected or bool(self.error_text))
+        available=max(1,self.width()-24)
+        # One glass panel: inline modes on wide screens, a second internal row
+        # on narrow screens. The completion action is never clipped or wrapped.
+        if self._modes_stacked:
+            self.toolbar_layout.removeWidget(self.modes)
+            self.action_layout.insertWidget(0,self.modes);self._modes_stacked=False
         icons=[*self.tool_buttons.values(),self.undo_button,self.redo_button,self.cancel_button]
         for button in icons:button.setFixedSize(34,34)
         for button in self.color_buttons:button.setFixedSize(22,22)
@@ -172,7 +184,13 @@ class SelectionOverlay(QWidget):
         if self.mode=='photo':self.confirm_button.setText('完成 · 复制')
         self.action_layout.invalidate()
         border=self.actions.frameWidth()*2
-        if self.action_layout.sizeHint().width()+border>available:
+        margins=self.toolbar_layout.contentsMargins();padding=margins.left()+margins.right()+border
+        self.modes.adjustSize()
+        if self.action_layout.sizeHint().width()+padding>available:
+            self.action_layout.removeWidget(self.modes)
+            self.toolbar_layout.insertWidget(0,self.modes,0,Qt.AlignmentFlag.AlignLeft);self._modes_stacked=True
+            self.action_layout.invalidate()
+        if self.action_layout.sizeHint().width()+padding>available:
             for button in icons:button.setFixedSize(24,34)
             for button in self.color_buttons:button.setFixedSize(16,16)
             for caption,title,spin in self.style_groups:caption.setText(title[0]);spin.setFixedWidth(36)
@@ -180,16 +198,16 @@ class SelectionOverlay(QWidget):
             self.save_button.setText('保存')
             if self.mode=='photo':self.confirm_button.setText('复制')
             self.action_layout.invalidate()
-        width=min(available,self.action_layout.sizeHint().width()+border)
-        self.actions.resize(width,52+border)
-        self.action_layout.activate()
-        x=max(8,min(self.width()-self.actions.width()-8,int(r.right())-self.actions.width()))
-        y=int(r.bottom())+12
-        if y+self.actions.height()>self.height()-8:y=max(8,int(r.top())-self.actions.height()-12)
-        candidate=QRectF(x,y,self.actions.width(),self.actions.height())
-        if candidate.intersects(QRectF(self.modes.geometry())):
-            y=min(self.height()-self.actions.height()-8,self.modes.geometry().bottom()+12)
-        self.actions.move(x,y);self.actions.show();self.actions.raise_();self.modes.raise_()
+        self.toolbar_layout.invalidate()
+        hint=self.toolbar_layout.sizeHint()
+        self.actions.resize(min(available,hint.width()+border),hint.height()+border)
+        self.toolbar_layout.activate()
+        x=int(r.right())-self.actions.width() if selected else (self.width()-self.actions.width())//2
+        x=max(8,min(self.width()-self.actions.width()-8,x))
+        y=int(r.bottom())+12 if selected else self.height()-self.actions.height()-20
+        if y+self.actions.height()>self.height()-8:y=int(r.top())-self.actions.height()-12
+        y=max(8,min(self.height()-self.actions.height()-8,y))
+        self.actions.move(x,y);self.actions.show();self.actions.raise_()
 
     def show_error(self,text):
         self.error_text=text;self.refresh_toolbar();self.hint_label.setToolTip(text)
@@ -214,7 +232,8 @@ class SelectionOverlay(QWidget):
 
     def refresh_options(self):
         if not hasattr(self,'block_spin'):return
-        kind=self.effective_tool();photo=self.mode=='photo'
+        kind=self.effective_tool();photo=self.mode=='photo' and self.start is not None
+        for widget in self.photo_controls:widget.setVisible(photo)
         for button in self.color_buttons:button.setVisible(photo and kind in ('rectangle','arrow','text'))
         visible={'width_spin':kind in ('rectangle','arrow'),'size_spin':kind=='text',
                  'brush_spin':kind=='mask','block_spin':kind=='mask'}
@@ -300,10 +319,10 @@ class SelectionOverlay(QWidget):
             badge_width=p.fontMetrics().horizontalAdvance(text)+26
             x=max(8,min(self.width()-badge_width-8,r.left()));y=max(8,r.top()-38)
             badge=QRectF(x,y,badge_width,28)
-            if badge.intersects(QRectF(self.modes.geometry())):badge.moveTop(max(8,r.top()+12))
+            if self.actions.isVisible() and badge.intersects(QRectF(self.actions.geometry())):badge.moveTop(max(8,r.top()+12))
             p.setPen(Qt.PenStyle.NoPen);p.setBrush(QColor(17,36,53,235));p.drawRoundedRect(badge,8,8)
             p.setPen(QColor('#e5f5ff'));p.drawText(badge,Qt.AlignmentFlag.AlignCenter,text)
-        paint_panel_shadows(p,(self.modes,self.actions))
+        paint_panel_shadows(p,(self.actions,))
         p.end()
     def mousePressEvent(self,event):
         if event.button()==Qt.MouseButton.RightButton:self.cancelled.emit();return
@@ -349,7 +368,8 @@ class SelectionOverlay(QWidget):
         if self.drag is None:return
         reset=self.drag=='new';self.move_drag(point);self.drag=None
         r=self.selection_rect()
-        if r.width()<2 or r.height()<2:self.start=self.end=None;self.update();return
+        if r.width()<2 or r.height()<2:
+            self.start=self.end=None;self.refresh_options();self.position_actions();self.update();return
         r=QRectF(r.toAlignedRect()).intersected(QRectF(self.rect()))
         self.start,self.end=r.topLeft(),r.bottomRight();self.refresh_canvas(reset);self.position_actions();self.update()
 

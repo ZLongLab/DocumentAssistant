@@ -1,7 +1,7 @@
 # Third-party components
 
 The Windows distribution bundles CPython, PySide6 / Qt, Shiboken6, pypdf,
-python-docx, lxml, olefile, typing_extensions and PyAudioWPatch/PortAudio. Their license notices are
+python-docx, lxml, olefile, typing_extensions, NumPy and PyAudioWPatch/PortAudio. Their license notices are
 included in the application's `_internal` directory and package metadata.
 
 - CPython: https://www.python.org/psf/license/
@@ -12,6 +12,8 @@ included in the application's `_internal` directory and package metadata.
 - lxml: https://github.com/lxml/lxml
 - olefile: https://github.com/decalage2/olefile
 - typing_extensions: https://github.com/python/typing_extensions
+- NumPy (BSD-3-Clause), including bundled numerical-library notices:
+  https://numpy.org/doc/stable/license.html (see the numpy package metadata licenses)
 - PyAudioWPatch (Apache-2.0), with PyAudio / PortAudio (MIT):
   https://github.com/s0d3s/PyAudioWPatch and https://www.portaudio.com/license.html
 - PyInstaller bootloader: https://pyinstaller.org/en/stable/license.html

@@ -2,14 +2,15 @@
 import os
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
+from .paths import comparison_path, filesystem_path, sqlite_filename
 
 
 def validate_watch_folder(path, library):
-    from .service import PROJECT_ROOT, within
+    from .service import PROJECT_ROOT, within, directory_link
     path=Path(path)
-    if path.is_symlink() or not path.is_dir():
+    if directory_link(path) or not filesystem_path(path).is_dir():
         raise ValueError('请选择存在的普通文件夹')
-    path=path.resolve()
+    path=comparison_path(path)
     if within(path,library) or within(path,PROJECT_ROOT) or within(PROJECT_ROOT,path):
         raise ValueError('收件箱不能位于文档库或代码目录中，也不能包含代码目录')
     return path
@@ -27,11 +28,12 @@ class DiscoveryCursor:
 
 
 def _paths(root, library, warnings, cancelled):
-    from .service import within, PROJECT_ROOT
-    for base, dirs, files in os.walk(root, followlinks=False, onerror=lambda exc:warnings.append(str(exc))):
+    from .service import within, PROJECT_ROOT, directory_link
+    # Descendants can exceed MAX_PATH even when the selected root is short.
+    for base, dirs, files in os.walk(sqlite_filename(root), followlinks=False, onerror=lambda exc:warnings.append(str(exc))):
         if cancelled(): return
         dirs[:] = [d for d in dirs if d not in {'.git','.venv','__pycache__','.documentassistant'}
-            and not (Path(base)/d).is_symlink() and not within(Path(base)/d,library) and not within(Path(base)/d,PROJECT_ROOT)]
+            and not directory_link(Path(base)/d) and not within(Path(base)/d,library) and not within(Path(base)/d,PROJECT_ROOT)]
         # Empty directories also consume the traversal budget.
         yield None
         for name in files:
@@ -79,10 +81,11 @@ def discover_folders(catalog, previous=None, cancelled=lambda:False, cursor=None
             if path is None: continue
             if path.suffix.lower() not in EXTENSIONS or path.name.startswith('~$') or path.is_symlink():continue
             try:
-                stat=path.stat()
-                if not path.is_file():continue
+                physical=filesystem_path(path)
+                stat=physical.stat()
+                if not physical.is_file():continue
             except OSError:continue
-            key=(folder,str(path.resolve()))
+            key=(folder,str(comparison_path(path)))
             signature=(stat.st_size,stat.st_mtime_ns)
             if seen.get(key)==signature:continue
             cursor.observed[key]=signature

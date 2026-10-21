@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .storage_base import Catalog as BaseCatalog, archive_file_state
-from .paths import sqlite_filename
+from .paths import sqlite_filename, filesystem_path
 
 
 class CatalogV8(BaseCatalog):
@@ -19,7 +19,7 @@ class CatalogV8(BaseCatalog):
         self.path = self.directory / 'catalog.sqlite3'
         self.last_backup = None
         needs_backup = False
-        if self.path.exists():
+        if filesystem_path(self.path).exists():
             with self.connection() as db:
                 columns = {r['name'] for r in db.execute('PRAGMA table_info(archives)')}
                 needs_backup = 'relative_path' not in columns
@@ -43,12 +43,12 @@ class CatalogV8(BaseCatalog):
 
     def backup(self, label='manual') -> Path:
         folder = self.directory / 'backups'
-        folder.mkdir(parents=True, exist_ok=True)
+        filesystem_path(folder).mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         target = folder / f'catalog-{stamp}-{label}-{uuid.uuid4().hex[:8]}.sqlite3'
         with self.connection() as source, closing(sqlite3.connect(sqlite_filename(target))) as destination:
             source.backup(destination)
-        return target
+        return filesystem_path(target)
 
     def _upgrade(self):
         with self.connection() as db:

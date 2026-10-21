@@ -6,10 +6,11 @@ from pathlib import Path
 
 from .rules import CATEGORIES
 from .service import ScanItem, sha256, validate_library, within
+from .paths import filesystem_path
 
 
 def identity(path):
-    info = path.stat()
+    info = filesystem_path(path).stat()
     return [info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns]
 
 
@@ -32,31 +33,33 @@ def archive_one(item, catalog, cancelled=lambda: False, duplicate_policy='keep')
     validate_library(catalog.library)
     if within(item.path,catalog.library):
         raise ValueError('不能把文档库中的文件再次归档')
-    before = item.path.stat()
+    before = filesystem_path(item.path).stat()
     if (before.st_size,before.st_mtime_ns) != (item.size,item.mtime_ns):
         raise ValueError('源文件已变化，请重新读取后确认')
     digest = sha256(item.path,cancelled)
+    if item.content_hash and digest != item.content_hash:
+        raise ValueError('源文件内容已变化，请重新读取后确认')
     if item.doc_id is None:
         item.doc_id = catalog.save_scan(item)
     rows = catalog.existing_archives(item.doc_id,item.category,digest)
     for row in rows:
         old = Path(row['archive_path'])
-        if old.is_file() and sha256(old,cancelled) == digest:
+        if filesystem_path(old).is_file() and sha256(old,cancelled) == digest:
             catalog.associate_archive(item,row['id'])
             catalog.log(item.doc_id,'跳过重复归档',str(old))
             return '已归档，跳过重复',old
     if duplicate_policy in ('skip','link'):
         for row in catalog.content_duplicates(digest):
             old = Path(row['archive_path'])
-            if old.is_file() and sha256(old,cancelled) == digest:
+            if filesystem_path(old).is_file() and sha256(old,cancelled) == digest:
                 catalog.associate_archive(item,row['id'],merge=duplicate_policy=='link')
                 return ('内容相同，已关联已有文档' if duplicate_policy=='link' else '内容相同，已跳过'),old
     folder = catalog.safe_path(item.category)
-    folder.mkdir(parents=True,exist_ok=True)
+    filesystem_path(folder).mkdir(parents=True,exist_ok=True)
     reserved = catalog.reserved_paths()
     task_id = uuid.uuid4().hex
     temporary = catalog.safe_path(str(Path('.documentassistant')/'pending'/f'{task_id}.part'))
-    temporary.parent.mkdir(parents=True,exist_ok=True)
+    filesystem_path(temporary.parent).mkdir(parents=True,exist_ok=True)
     reservation = None
     target = None
     task_active = False
@@ -72,7 +75,7 @@ def archive_one(item, catalog, cancelled=lambda: False, duplicate_policy='keep')
                 'temp_relative':str(temporary.relative_to(catalog.library)),'document_id':item.doc_id,'digest':digest,'metadata':metadata})
             task_active = True
             try:
-                with candidate.open('xb'):
+                with filesystem_path(candidate).open('xb'):
                     pass
             except FileExistsError:
                 catalog.delete_task(task_id)
@@ -84,19 +87,19 @@ def archive_one(item, catalog, cancelled=lambda: False, duplicate_policy='keep')
             break
         if target is None:
             raise ValueError('同名文件过多，无法分配新文件名')
-        with temporary.open('xb') as destination, item.path.open('rb') as original:
+        with filesystem_path(temporary).open('xb') as destination, filesystem_path(item.path).open('rb') as original:
             for chunk in iter(lambda: original.read(1024*1024),b''):
                 if cancelled():
                     raise InterruptedError('复制已停止，原文件保留')
                 destination.write(chunk)
             destination.flush()
             os.fsync(destination.fileno())
-        after = item.path.stat()
+        after = filesystem_path(item.path).stat()
         if sha256(temporary,cancelled) != digest or (after.st_size,after.st_mtime_ns) != (before.st_size,before.st_mtime_ns):
             raise ValueError('复制期间源文件变化或校验失败，请重新扫描')
         if identity(target) != reservation:
             raise ValueError('目标文件已被其他程序修改，已保留该文件')
-        os.replace(temporary,target)  # Replaces only our checked, exclusive empty reservation.
+        os.replace(filesystem_path(temporary),filesystem_path(target))  # Only our checked exclusive reservation.
         item._archive_task_id = task_id
         item._batch_id = metadata['batch_id']
         catalog.record_archive(item,target,digest)
@@ -104,12 +107,12 @@ def archive_one(item, catalog, cancelled=lambda: False, duplicate_policy='keep')
     except Exception:
         # Do not remove a committed archive, or a target changed by another program.
         recorded = any(Path(row['archive_path']) == target for row in catalog.content_duplicates(digest)) if target else False
-        safe_target = target and target.is_file() and (identity(target) == reservation or sha256(target) == digest)
+        safe_target = target and filesystem_path(target).is_file() and (identity(target) == reservation or sha256(target) == digest)
         if safe_target and not recorded:
-            target.unlink()
-        if temporary.exists():
-            temporary.unlink()
-        if task_active and (not target or not target.exists() or recorded):
+            filesystem_path(target).unlink()
+        if filesystem_path(temporary).exists():
+            filesystem_path(temporary).unlink()
+        if task_active and (not target or not filesystem_path(target).exists() or recorded):
             catalog.delete_task(task_id)
         raise
 
@@ -131,14 +134,14 @@ def recover_pending(catalog, progress=lambda *_:None, cancelled=lambda:False):
                 catalog.delete_task(task['id'])
                 messages.append('已登记，清理任务：'+target.name)
                 continue
-            ready = target.is_file() and sha256(target,cancelled) == digest
+            ready = filesystem_path(target).is_file() and sha256(target,cancelled) == digest
             reserved = json.loads(task['reservation'] or 'null')
-            if not ready and temporary.is_file() and sha256(temporary,cancelled) == digest:
-                if not target.exists():
+            if not ready and filesystem_path(temporary).is_file() and sha256(temporary,cancelled) == digest:
+                if not filesystem_path(target).exists():
                     # Rename is exclusive on Windows; never replace somebody else's file.
-                    temporary.rename(target)
+                    filesystem_path(temporary).rename(filesystem_path(target))
                 elif reserved and identity(target) == reserved:
-                    os.replace(temporary,target)
+                    os.replace(filesystem_path(temporary),filesystem_path(target))
                 else:
                     raise ValueError('目标已被修改，保留临时副本待检查')
                 ready = True
@@ -150,9 +153,9 @@ def recover_pending(catalog, progress=lambda *_:None, cancelled=lambda:False):
                 messages.append('恢复归档：'+target.name)
             else:
                 # Keep incomplete bytes for inspection, remove only our untouched empty reservation.
-                if reserved and target.exists() and identity(target) == reserved:
-                    target.unlink()
-                if not target.exists():
+                if reserved and filesystem_path(target).exists() and identity(target) == reserved:
+                    filesystem_path(target).unlink()
+                if not filesystem_path(target).exists():
                     catalog.delete_task(task['id'])
                     messages.append('未完成副本已隔离，原文件保留，可重新导入：'+target.name)
                 else:
@@ -167,10 +170,10 @@ def recover_pending(catalog, progress=lambda *_:None, cancelled=lambda:False):
             target = catalog.safe_path(task['target_relative'])
             trash = catalog.safe_path(task['trash_relative'])
             row = json.loads(task['metadata'])
-            if not target.exists() and trash.is_file() and sha256(trash,cancelled) == row['sha256']:
+            if not filesystem_path(target).exists() and filesystem_path(trash).is_file() and sha256(trash,cancelled) == row['sha256']:
                 catalog.finish_undo(task['id'])
                 messages.append('恢复撤销记录：'+row['filename'])
-            elif not trash.exists() and target.is_file() and sha256(target,cancelled) == row['sha256']:
+            elif not filesystem_path(trash).exists() and filesystem_path(target).is_file() and sha256(target,cancelled) == row['sha256']:
                 catalog.cancel_unstarted_undo(task['id'])
                 messages.append('撤销尚未移动副本，已取消中断任务：'+row['filename'])
             else:
@@ -191,14 +194,14 @@ def undo_batch(catalog, rows, progress=lambda *_:None, cancelled=lambda:False):
         progress(index-1,len(rows),'撤销 '+row['filename'])
         try:
             target = catalog.safe_path(row['relative_path'])
-            if not target.is_file() or sha256(target,cancelled) != row['sha256']:
+            if not filesystem_path(target).is_file() or sha256(target,cancelled) != row['sha256']:
                 messages.append('已变化或不存在，保留记录：'+row['filename'])
                 continue
             relative = str(Path('.documentassistant')/'undo'/uuid.uuid4().hex/target.name)
             trash = catalog.safe_path(relative)
-            trash.parent.mkdir(parents=True,exist_ok=True)
+            filesystem_path(trash.parent).mkdir(parents=True,exist_ok=True)
             task_id = catalog.prepare_undo(row,relative)
-            target.rename(trash)
+            filesystem_path(target).rename(filesystem_path(trash))
             catalog.finish_undo(task_id)
             messages.append('已撤销，副本保留在恢复区：'+row['filename'])
         except Exception as exc:
@@ -217,7 +220,7 @@ def index_archives(catalog, progress=lambda *_:None, cancelled=lambda:False):
         progress(index-1,len(rows),'索引 '+row['filename'])
         path = Path(row['archive_path'])
         try:
-            if not path.is_file() or sha256(path,cancelled) != row['sha256']:
+            if not filesystem_path(path).is_file() or sha256(path,cancelled) != row['sha256']:
                 messages.append('文件已变化或不存在，保留原索引：'+row['filename'])
                 continue
             extracted = extract_isolated(path)

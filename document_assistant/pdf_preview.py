@@ -1,5 +1,6 @@
 """Local PDF page rendering with bounded memory and explicit password entry."""
 from pathlib import Path
+from .paths import filesystem_path
 
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPointF, Qt
 from PySide6.QtPdf import QPdfDocument
@@ -64,7 +65,7 @@ class PdfPreview(QWidget):
     def load_path(self, path, password=None):
         path = Path(path) if path else None
         try:
-            info = path.stat() if path else None
+            info = filesystem_path(path).stat() if path else None
             fingerprint = (str(path), info.st_size, info.st_mtime_ns) if info else None
             if password is None and fingerprint and fingerprint == self.fingerprint:
                 return
@@ -82,9 +83,9 @@ class PdfPreview(QWidget):
             if info.st_size > self.LIMIT:
                 self.message.setText('PDF 超过 50 MB，请使用“打开文件”查看。')
                 return
-            with path.open('rb') as stream:
+            with filesystem_path(path).open('rb') as stream:
                 data = stream.read(self.LIMIT + 1)
-            after = path.stat()
+            after = filesystem_path(path).stat()
             if len(data) > self.LIMIT or (info.st_size, info.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                 raise ValueError('读取时文件发生变化，请重新选择')
             # Keep an immutable buffer so preview never holds the original file open.

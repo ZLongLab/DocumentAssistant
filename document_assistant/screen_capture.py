@@ -511,14 +511,18 @@ class CaptureController:
         try:
             from .long_capture import LongCaptureSession
             key=self.hotkey.text if self.hotkey.ident is not None else 'Enter / 托盘菜单'
-            session=LongCaptureSession(screen,rect,key,self.window);self.long_capture=session
+            initial=None
+            for overlay in self.overlays:
+                if overlay.screen_ref==screen:
+                    initial=crop_selection(overlay.image,rect,screen.geometry().size());break
+            session=LongCaptureSession(screen,rect,key,self.window,initial_frame=initial);self.long_capture=session
             session.completed.connect(self.long_completed);session.failed.connect(self.long_failed)
             session.cancelled.connect(self.long_cancelled)
             self.close_overlays()
             if self.long_stop:self.long_stop.setEnabled(True)
             if self.tray:self.tray.setToolTip('正在采集长截图 · '+key+' 完成')
             if self.from_hotkey:restore_foreground(self.previous_foreground)
-            QTimer.singleShot(220,lambda:session.start() if self.long_capture is session and not session.done else None)
+            QTimer.singleShot(80,lambda:session.start() if self.long_capture is session and not session.done else None)
         except Exception as exc:self.long_failed(str(exc))
 
     def finish_long(self,*_):

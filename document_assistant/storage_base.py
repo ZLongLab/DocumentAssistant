@@ -5,12 +5,13 @@ import sqlite3
 import stat
 from contextlib import contextmanager
 from pathlib import Path
+from .paths import filesystem_path
 
 
 def archive_file_state(path: str) -> str:
     """Only proven absence is eligible for cleanup; access errors stay untouched."""
     try:
-        info = Path(path).stat()
+        info = filesystem_path(path).stat()
         return 'available' if stat.S_ISREG(info.st_mode) else 'unknown'
     except FileNotFoundError:
         return 'missing'
@@ -22,7 +23,7 @@ class Catalog:
     def __init__(self, library: Path):
         self.library = library.resolve()
         directory = self.library / ".documentassistant"
-        directory.mkdir(parents=True, exist_ok=True)
+        filesystem_path(directory).mkdir(parents=True, exist_ok=True)
         self.path = directory / "catalog.sqlite3"
         with self.connection() as db:
             db.executescript("""

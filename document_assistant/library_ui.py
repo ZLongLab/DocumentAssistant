@@ -12,6 +12,7 @@ from .library_backup import export_library, restore_library
 from .organization import label_values, validate_label_rules
 from .pdf_preview import DocumentPreviewDialog
 from .recovery import restore_recycled
+from .storage_base import archive_file_state
 
 
 class RecycleDialog(QDialog):
@@ -39,7 +40,7 @@ class RecycleDialog(QDialog):
             metadata = json.loads(entry['metadata'])
             try:
                 path = window.catalog.safe_path(entry['trash_relative'])
-                state = '副本存在' if path.is_file() else '副本不存在'
+                state = {'available':'副本存在', 'missing':'副本不存在', 'unknown':'状态无法确认'}[archive_file_state(str(path))]
             except (ValueError, OSError):
                 state = '状态无法确认'
             values = (entry['filename'], ' · '.join(metadata.get(f, '') for f in ('course', 'project') if metadata.get(f)), entry['created_at'], state)
@@ -76,10 +77,17 @@ class RecycleDialog(QDialog):
             button.setEnabled(selected)
 
     def preview(self):
-        entry = self.selected_rows()[0]
-        path = self.window.catalog.safe_path(entry['trash_relative'])
-        if not path.is_file():
-            QMessageBox.information(self, '副本不存在', '保留的副本已不存在，请检查恢复文件夹。')
+        selected = self.selected_rows()
+        if not selected:
+            return
+        entry = selected[0]
+        try:
+            path = self.window.catalog.safe_path(entry['trash_relative'])
+            state = archive_file_state(str(path))
+        except (ValueError, OSError):
+            state = 'unknown'
+        if state != 'available':
+            QMessageBox.information(self, '无法预览副本', '保留的副本已不存在，请检查恢复文件夹。' if state == 'missing' else '暂时无法确认副本状态，请检查磁盘连接或访问权限后重试。')
             return
         dialog = DocumentPreviewDialog(path, json.loads(entry['metadata']).get('body_snapshot', ''), self)
         dialog.exec()

@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 
 from . import __version__
 from .service import sha256, validate_library, within
-from .paths import filesystem_path, sqlite_filename
+from .paths import comparison_path, filesystem_path, sqlite_filename
 
 DATABASE = '.documentassistant/catalog.sqlite3'
 
@@ -34,14 +34,16 @@ def portable_relative(name):
 
 
 def inventory(library):
+    library = comparison_path(library)
     result, visited = {}, set()
     def inaccessible(error):
         raise error
-    for root, dirs, files in os.walk(library, followlinks=False, onerror=inaccessible):
-        folder = Path(root)
-        stat = folder.stat()
+    # Descendants may be long even when the library root is short.
+    for root, dirs, files in os.walk(sqlite_filename(library), followlinks=False, onerror=inaccessible):
+        folder = comparison_path(root)
+        stat = filesystem_path(folder).stat()
         identity = (stat.st_dev, stat.st_ino)
-        if identity in visited or not folder.resolve().is_relative_to(library):
+        if identity in visited or not within(folder,library):
             raise ValueError('文档库包含循环链接或指向库外的目录')
         visited.add(identity)
         for name in list(dirs):
@@ -49,7 +51,7 @@ def inventory(library):
             relative = path.relative_to(library).as_posix()
             if relative.casefold() == '.documentassistant/backups':
                 dirs.remove(name)
-            elif path.is_symlink() or not path.resolve().is_relative_to(library):
+            elif filesystem_path(path).is_symlink() or not within(path,library):
                 raise ValueError('文档库包含目录链接，请先移出链接')
         for name in files:
             path = folder / name
@@ -60,9 +62,9 @@ def inventory(library):
             if first.casefold()=='.documentassistant':
                 relative = '.documentassistant' + relative[len(first):]
             portable_relative(relative)
-            if path.is_symlink() or not path.resolve().is_relative_to(library) or not path.is_file():
+            if filesystem_path(path).is_symlink() or not within(path,library) or not filesystem_path(path).is_file():
                 raise ValueError('文档库包含不支持的文件链接')
-            stat = path.stat()
+            stat = filesystem_path(path).stat()
             result[relative] = (path, stat.st_size, stat.st_mtime_ns)
     return result
 
@@ -110,21 +112,21 @@ def export_library(catalog, destination, progress=lambda *_: None, cancelled=lam
             manifest = {'format': 1, 'app_version': __version__, 'library_id': catalog.library_id,
                         'archive_count': archived, 'recycle_count': recycled, 'files': {}}
             files[DATABASE] = (snapshot, snapshot.stat().st_size, snapshot.stat().st_mtime_ns)
-            with zipfile.ZipFile(temporary, 'x', compression=zipfile.ZIP_DEFLATED, allowZip64=True) as bundle:
+            with zipfile.ZipFile(filesystem_path(temporary), 'x', compression=zipfile.ZIP_DEFLATED, allowZip64=True) as bundle:
                 for index, (relative, (path, size, modified)) in enumerate(sorted(files.items()), 1):
                     if cancelled():
                         raise InterruptedError('备份已停止，原库保留')
                     progress(index - 1, len(files), '备份 ' + Path(relative).name)
                     digest = hashlib.sha256()
                     count = 0
-                    with path.open('rb') as stream, bundle.open('library/' + relative, 'w', force_zip64=True) as target:
+                    with filesystem_path(path).open('rb') as stream, bundle.open('library/' + relative, 'w', force_zip64=True) as target:
                         for block in iter(lambda: stream.read(1024 * 1024), b''):
                             if cancelled():
                                 raise InterruptedError('备份已停止，原库保留')
                             digest.update(block)
                             count += len(block)
                             target.write(block)
-                    after = path.stat()
+                    after = filesystem_path(path).stat()
                     if count != size or (after.st_size, after.st_mtime_ns) != (size, modified):
                         raise ValueError('备份期间文件发生变化，请重新备份：' + relative)
                     manifest['files'][relative] = {'size': count, 'sha256': digest.hexdigest()}
@@ -136,7 +138,7 @@ def export_library(catalog, destination, progress=lambda *_: None, cancelled=lam
             original = {key: value[1:] for key, value in files.items() if key != DATABASE}
             if {key: value[1:] for key, value in current.items()} != original:
                 raise ValueError('备份期间文档库文件列表发生变化，请重新备份')
-        with zipfile.ZipFile(temporary) as bundle:
+        with zipfile.ZipFile(filesystem_path(temporary)) as bundle:
             for relative, expected in manifest['files'].items():
                 if cancelled():
                     raise InterruptedError('备份已停止，原库保留')
@@ -150,7 +152,7 @@ def export_library(catalog, destination, progress=lambda *_: None, cancelled=lam
                     raise ValueError('备份包内容校验失败')
         # Publish without replacing an existing file, including a concurrent creator.
         if os.name == 'nt':
-            temporary.rename(destination)
+            filesystem_path(temporary).rename(filesystem_path(destination))
         else:
             os.link(temporary, destination)
         return {'path': str(destination), 'archive_count': archived, 'recycle_count': recycled,
@@ -206,10 +208,10 @@ def restore_library(backup, destination, progress=lambda *_: None, cancelled=lam
                 target = stage.joinpath(*PurePosixPath(relative).parts)
                 if not target.resolve().is_relative_to(stage):
                     raise ValueError('备份路径指向恢复目录外')
-                target.parent.mkdir(parents=True, exist_ok=True)
+                filesystem_path(target.parent).mkdir(parents=True, exist_ok=True)
                 digest, count = hashlib.sha256(), 0
                 progress(index - 1, len(files), '恢复 ' + Path(relative).name)
-                with bundle.open(entry) as stream, target.open('xb') as copied:
+                with bundle.open(entry) as stream, filesystem_path(target).open('xb') as copied:
                     for block in iter(lambda: stream.read(1024 * 1024), b''):
                         if cancelled():
                             raise InterruptedError('恢复已停止，原文档库保留')

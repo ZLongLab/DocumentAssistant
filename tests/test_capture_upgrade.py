@@ -13,6 +13,7 @@ from document_assistant.capture_hotkey import parse_hotkey
 from document_assistant.document_metadata import preview_category_rule
 from document_assistant.rules import DEFAULT_RULES
 from document_assistant.watch_inbox import DiscoveryCursor, discover_folders
+from document_assistant.paths import comparison_path
 from document_assistant.screen_capture import (AnnotationCanvas, CaptureController,
     CaptureEditor, copy_image, crop_selection, render_annotations, save_png)
 from document_assistant.gui import MainWindow
@@ -43,7 +44,7 @@ class ManagementFixTests(Fixture):
         self.catalog.set_watch_folder(a);self.catalog.set_watch_folder(b)
         cursor=DiscoveryCursor();previous={};found=set();cycles=0
         def walk(root,**kwargs):
-            if Path(root)==a:
+            if comparison_path(root)==a:
                 yield str(a),[],['first.txt']+[f'{i}.bin' for i in range(24000)]+['later.txt']
             else:yield str(b),[],['second.txt']
         with patch('document_assistant.watch_inbox.os.walk',side_effect=walk):
